@@ -7,6 +7,30 @@ from pynput import keyboard
 DEFAULT_HOTKEY = {keyboard.Key.ctrl_l, keyboard.Key.shift, keyboard.Key.space}
 QUIT_HOTKEY = {keyboard.Key.ctrl_l, keyboard.Key.shift, keyboard.KeyCode.from_vk(0x51)}  # Q
 
+_KEY_MAP = {
+    "ctrl": keyboard.Key.ctrl_l,
+    "shift": keyboard.Key.shift,
+    "alt": keyboard.Key.alt_l,
+    "space": keyboard.Key.space,
+    "esc": keyboard.Key.esc,
+    "tab": keyboard.Key.tab,
+    "enter": keyboard.Key.enter,
+}
+
+
+def parse_hotkey(text: str) -> set:
+    """Parse a string like 'ctrl+shift+space' into a pynput key set."""
+    keys = set()
+    for part in text.lower().strip().split("+"):
+        part = part.strip()
+        if part in _KEY_MAP:
+            keys.add(_KEY_MAP[part])
+        elif len(part) == 1:
+            keys.add(keyboard.KeyCode.from_vk(ord(part.upper())))
+        else:
+            raise ValueError(f"Unknown key: {part}")
+    return keys
+
 
 class HotkeyManager:
     def __init__(self, hotkey: set | None = None, quit_hotkey: set | None = None):

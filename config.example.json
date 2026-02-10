@@ -1,0 +1,9 @@
+{
+    "api_key": "sk-ant-xxx（或留空，使用 .env 中的 ANTHROPIC_API_KEY）",
+    "model": "claude-sonnet-4-20250514",
+    "hotkey_activate": "ctrl+shift+space",
+    "hotkey_quit": "ctrl+shift+q",
+    "screenshot_interval": 3.0,
+    "hash_threshold": 12,
+    "max_tokens": 1024
+}

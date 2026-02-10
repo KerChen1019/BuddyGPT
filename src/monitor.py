@@ -33,6 +33,7 @@ class ScreenMonitor:
         self._change_count: int = 0
         self._capture_count: int = 0
         self._on_change_callbacks: list = []
+        self.paused: bool = False
 
     def on_change(self, callback):
         """Register a callback: callback(frame_info, distance)."""

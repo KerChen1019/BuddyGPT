@@ -10,19 +10,15 @@ from PIL import Image
 user32 = ctypes.windll.user32
 
 
-def get_active_window_rect() -> tuple[int, int, int, int] | None:
-    """Return (left, top, right, bottom) of the foreground window, or None."""
-    hwnd = user32.GetForegroundWindow()
+def get_active_hwnd() -> int:
+    """Return the handle of the foreground window."""
+    return user32.GetForegroundWindow()
+
+
+def get_window_title(hwnd: int = 0) -> str:
+    """Return the title of a window. If hwnd=0, uses the foreground window."""
     if not hwnd:
-        return None
-    rect = wintypes.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    return (rect.left, rect.top, rect.right, rect.bottom)
-
-
-def get_active_window_title() -> str:
-    """Return the title of the foreground window."""
-    hwnd = user32.GetForegroundWindow()
+        hwnd = user32.GetForegroundWindow()
     length = user32.GetWindowTextLengthW(hwnd)
     if length == 0:
         return ""
@@ -31,14 +27,32 @@ def get_active_window_title() -> str:
     return buf.value
 
 
-def capture_active_window() -> Image.Image | None:
-    """Capture a screenshot of the active window. Returns a PIL Image or None."""
-    rect = get_active_window_rect()
+# Keep old name working
+get_active_window_title = get_window_title
+
+
+def get_window_rect(hwnd: int = 0) -> tuple[int, int, int, int] | None:
+    """Return (left, top, right, bottom) of a window. If hwnd=0, uses foreground."""
+    if not hwnd:
+        hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    rect = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+# Keep old name working
+get_active_window_rect = get_window_rect
+
+
+def capture_window(hwnd: int = 0) -> Image.Image | None:
+    """Capture a specific window by handle. If hwnd=0, uses foreground window."""
+    rect = get_window_rect(hwnd)
     if rect is None:
         return None
 
     left, top, right, bottom = rect
-    # Clamp to non-negative and ensure valid size
     left = max(left, 0)
     top = max(top, 0)
     width = right - left
@@ -50,6 +64,10 @@ def capture_active_window() -> Image.Image | None:
     with mss.mss() as sct:
         shot = sct.grab(monitor)
         return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+
+
+# Keep old name working
+capture_active_window = capture_window
 
 
 def capture_full_screen(monitor_index: int = 0) -> Image.Image:
