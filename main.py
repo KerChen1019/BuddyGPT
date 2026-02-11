@@ -19,10 +19,13 @@ from src.monitor import ScreenMonitor, MonitorConfig
 from src.hotkey import HotkeyManager, parse_hotkey
 from src.ai_assistant import AIAssistant
 from src.overlay import OverlayWindow
+from src.app_detector import detect_app, AppInfo
+from src.content_filter import filter_content, build_context_prompt
 
 cfg = load_config()
 ai = AIAssistant(api_key=cfg["api_key"], model=cfg["model"], max_tokens=cfg["max_tokens"])
 target_hwnd: int = 0
+current_app: AppInfo | None = None
 
 
 def on_screen_change(frame, distance):
@@ -32,22 +35,37 @@ def on_screen_change(frame, distance):
 
 def on_submit(question, image):
     """Called by overlay UI when user submits a question."""
-    # Re-capture target window for fresh context if no image yet
+    # Re-capture and filter target window if no image
     if image is None and target_hwnd:
-        image = capture_window(target_hwnd)
-    answer = ai.ask(question, image=image)
+        raw = capture_window(target_hwnd)
+        if raw and current_app:
+            image = filter_content(raw, current_app)
+
+    # Prepend app context to the question
+    if current_app:
+        context = build_context_prompt(current_app)
+        full_question = f"[{context}]\n\n{question}"
+    else:
+        full_question = question
+
+    answer = ai.ask(full_question, image=image)
     return answer
 
 
 def on_activate(overlay):
-    """Called when hotkey is pressed — remember target window, capture it, show overlay."""
-    global target_hwnd
+    """Called when hotkey is pressed — detect app, capture & filter, show overlay."""
+    global target_hwnd, current_app
     target_hwnd = get_active_hwnd()
-    title = get_window_title(target_hwnd)
+    current_app = detect_app(target_hwnd)
     img = capture_window(target_hwnd)
+
+    # Filter content based on app type
+    if img and current_app:
+        img = filter_content(img, current_app)
+
     ai.clear_history()
-    logger.info("Activated on window: \"%s\" (hwnd=%d)", title, target_hwnd)
-    overlay.show(image=img, window_title=title)
+    logger.info("Activated: %s (%s) hwnd=%d", current_app.label, current_app.process_name, target_hwnd)
+    overlay.show(image=img, window_title=f"{current_app.label} — {current_app.window_title}")
 
 
 def main():
