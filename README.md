@@ -6,7 +6,7 @@ It doesn't do your work. It doesn't write your emails. It just sits there, nappi
 
 Then it wakes up, peeks at your screen, and says something like:
 
-> "哦，这个 user 是 None，.get() 一下就好了"
+> "Oh, `user` is None here. Just use `.get()` and you're good."
 
 That's it. Like a colleague sitting next to you who happens to be good at everything.
 
@@ -36,7 +36,7 @@ Press **Ctrl+Shift+Space** anywhere — it wakes up:
 ```
 👂        ← ears up, ready to listen
 🐕
-[问点什么？___]
+[ask me anything___]
 ```
 
 Ask a question — it thinks:
@@ -44,16 +44,17 @@ Ask a question — it thinks:
 ```
 🤔        ← peeking at your screen
 🐕
-[思考中...]
+[thinking...]
 ```
 
 Then gives you a quick answer:
 
 ```
-┌────────────────────┐
-│ 他就是催你周五交报告 │
-│ 带上 Q3 数据就行    │
-└────────────────────┘
+┌──────────────────────────────┐
+│ He's just asking for the     │
+│ report by Friday. Include    │
+│ Q3 data and you're good.    │
+└──────────────────────────────┘
 😊
 🐕
 ```
