@@ -64,6 +64,7 @@ def on_activate(overlay):
         img = filter_content(img, current_app)
 
     ai.clear_history()
+    ai.set_app_context(current_app.app_type.value)
     logger.info("Activated: %s (%s) hwnd=%d", current_app.label, current_app.process_name, target_hwnd)
     overlay.show(image=img, window_title=f"{current_app.label} — {current_app.window_title}")
 

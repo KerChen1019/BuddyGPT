@@ -14,11 +14,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 
+from .prompts import SYSTEM_PROMPT, APP_PROMPTS
+
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
-DEFAULT_SYSTEM_PROMPT = (
-    "你是一个屏幕AI助手。用户会发送屏幕截图并提问，"
-    "请根据截图内容用中文简洁回答。"
-)
 
 
 @dataclass
@@ -33,7 +31,7 @@ class AIAssistant:
         self,
         api_key: str | None = None,
         model: str = DEFAULT_MODEL,
-        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        system_prompt: str = SYSTEM_PROMPT,
         max_tokens: int = 1024,
     ):
         self.client = anthropic.Anthropic(api_key=api_key)
@@ -41,6 +39,18 @@ class AIAssistant:
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
         self.history: list[ChatMessage] = []
+        self._app_type: str = ""
+
+    def set_app_context(self, app_type: str):
+        """Set the current app type for context-aware prompting."""
+        self._app_type = app_type
+
+    def _get_full_system_prompt(self) -> str:
+        prompt = self.system_prompt
+        app_addition = APP_PROMPTS.get(self._app_type, "")
+        if app_addition:
+            prompt += f"\n\n## 当前场景\n{app_addition}"
+        return prompt
 
     @staticmethod
     def _image_to_base64(img: Image.Image, max_size: int = 1280) -> str:
@@ -96,7 +106,7 @@ class AIAssistant:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                system=self.system_prompt,
+                system=self._get_full_system_prompt(),
                 messages=self._build_messages(),
             )
             answer = response.content[0].text
