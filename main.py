@@ -55,7 +55,7 @@ def on_submit(question, image):
 def on_activate(overlay):
     """Called when hotkey is pressed — detect app, capture & filter, show overlay."""
     global target_hwnd, current_app
-    target_hwnd = get_active_hwnd()
+    target_hwnd = get_active_hwnd(skip_hwnd=overlay.hwnd)
     current_app = detect_app(target_hwnd)
     img = capture_window(target_hwnd)
 

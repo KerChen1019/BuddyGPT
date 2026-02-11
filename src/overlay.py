@@ -1,44 +1,102 @@
-"""Desktop pet overlay — emoji Shiba with chat bubble."""
+"""Desktop pet overlay — animated Shiba with iOS-style chat UI."""
 
+import ctypes
 import threading
 import tkinter as tk
-from PIL import Image
+import tkinter.font as tkfont
+from PIL import Image, ImageTk
 
 from .pet import Pet, PetState
+from .sprites import SpriteManager
 
-BG = "#1e1e2e"
-FG = "#cdd6f4"
-FG_DIM = "#6c7086"
-BUBBLE_BG = "#313244"
-INPUT_BG = "#45475a"
-ACCENT = "#89b4fa"
+user32 = ctypes.windll.user32
 
-PET_EMOJI = {
-    PetState.SLEEPING:  "💤\n🐕",
-    PetState.WAKING:    "❗\n🐕",
-    PetState.LISTENING: "👂\n🐕",
-    PetState.THINKING:  "🤔\n🐕",
-    PetState.ANSWERING: "😊\n🐕",
-    PetState.RESTING:   "😴\n🐕",
-}
+# Chroma key — all pixels of this color become fully transparent
+CHROMA = "#00ff00"
+CHROMA_RGB = (0, 255, 0)
 
-SLEEP_FRAMES = ["💤\n🐕", " 💤\n🐕", "  💤\n🐕", " 💤\n🐕"]
+# iOS-style colors
+BUBBLE_BG = "#E9E9EB"
+BUBBLE_FG = "#000000"
+INPUT_BG = "#FFFFFF"
+INPUT_BORDER = "#C7C7CC"
+ACCENT = "#007AFF"
+STATUS_FG = "#FFFFFF"
+STATUS_BG = "#8E8E93"
+HINT_FG = "#8E8E93"
+
+SPRITE_SIZE = 128
+FRAME_MS = 160  # milliseconds per animation frame
+
+WINDOW_W = 320
+
+# Fixed heights for states without bubble
+H_RESTING = 200
+H_AWAKE = 260
+
+# Bubble geometry
+BUBBLE_TAIL_H = 15
+CORNER_R = 15
+BUBBLE_PAD_TOP = 16
+BUBBLE_PAD_BOTTOM = 16
+BUBBLE_MIN_TEXT_H = 28
+BUBBLE_MAX_TEXT_H = 280
+
+# Input bar geometry
+INPUT_H = 34
+INPUT_R = 17
+INPUT_PAD_X = 28  # horizontal margin to narrow the pill
+
+# Base height: sprite + status + padding
+BASE_H = SPRITE_SIZE + 50
+# Extra height when input bar is shown
+INPUT_AREA_H = INPUT_H + 16
+
+
+def _create_rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
+    """Draw a rounded rectangle using a smooth polygon."""
+    points = [
+        x1 + r, y1,
+        x2 - r, y1,
+        x2, y1,
+        x2, y1 + r,
+        x2, y2 - r,
+        x2, y2,
+        x2 - r, y2,
+        x1 + r, y2,
+        x1, y2,
+        x1, y2 - r,
+        x1, y1 + r,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
 
 
 class OverlayWindow:
     def __init__(self, on_submit):
         self._on_submit = on_submit
         self._root: tk.Tk | None = None
+        self._hwnd: int = 0
         self._image: Image.Image | None = None
         self._pet = Pet()
+        self._sprites = SpriteManager(frame_size=SPRITE_SIZE, chroma=CHROMA_RGB)
         self._ready = threading.Event()
         self._drag_data = {"x": 0, "y": 0}
+        self._photo: ImageTk.PhotoImage | None = None
+        self._bubble_total_h = 0  # current bubble height (including tail)
 
-        self._pet.on_state_change(lambda old, new: self._root.after(0, self._on_pet_state_change) if self._root else None)
+        self._pet.on_state_change(
+            lambda old, new: self._root.after(0, self._on_pet_state_change)
+            if self._root else None
+        )
 
         self._tk_thread = threading.Thread(target=self._run_tk, daemon=True)
         self._tk_thread.start()
         self._ready.wait()
+
+    @property
+    def hwnd(self) -> int:
+        return self._hwnd
 
     # ── Tk setup ──
 
@@ -47,81 +105,233 @@ class OverlayWindow:
         self._root.title("BuddyGPT")
         self._root.attributes("-topmost", True)
         self._root.overrideredirect(True)
-        self._root.configure(bg=BG)
+        self._root.configure(bg=CHROMA)
+        self._root.attributes("-transparentcolor", CHROMA)
+        self._root.attributes("-alpha", 1.0)
 
         # Position: bottom-right
         sw = self._root.winfo_screenwidth()
         sh = self._root.winfo_screenheight()
-        self._root.geometry(f"320x140+{sw - 340}+{sh - 200}")
-        self._root.attributes("-alpha", 0.7)
+        self._root.geometry(
+            f"{WINDOW_W}x{H_RESTING}+{sw - WINDOW_W - 20}+{sh - H_RESTING - 60}"
+        )
+
+        # Get Win32 HWND for skip_hwnd logic
+        self._root.update_idletasks()
+        self._hwnd = user32.GetParent(self._root.winfo_id()) or self._root.winfo_id()
+
+        # Font for text measurement
+        self._measure_font = tkfont.Font(family="Segoe UI", size=10)
 
         # ── Main frame ──
-        self._frame = tk.Frame(self._root, bg=BG)
-        self._frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        self._frame = tk.Frame(self._root, bg=CHROMA)
+        self._frame.pack(fill=tk.BOTH, expand=True)
 
-        # Drag to move
-        self._frame.bind("<Button-1>", self._drag_start)
-        self._frame.bind("<B1-Motion>", self._drag_move)
+        # ── Bubble canvas (hidden by default, drawn dynamically) ──
+        canvas_w = WINDOW_W - 16
+        self._canvas_w = canvas_w
+        self._bubble_canvas = tk.Canvas(
+            self._frame, bg=CHROMA, highlightthickness=0,
+            width=canvas_w, height=0,
+        )
 
-        # ── Bubble (hidden by default) ──
-        self._bubble_frame = tk.Frame(self._frame, bg=BUBBLE_BG, padx=10, pady=8)
-        # not packed yet — shown when answering
-
+        # Text widget for bubble (placed on canvas by _update_bubble)
         self._bubble_text = tk.Text(
-            self._bubble_frame, wrap=tk.WORD, font=("Segoe UI", 10),
-            bg=BUBBLE_BG, fg=FG, relief=tk.FLAT, height=5, width=32,
-            state=tk.DISABLED, cursor="arrow",
+            self._bubble_canvas, wrap=tk.WORD, font=("Segoe UI", 10),
+            bg=BUBBLE_BG, fg=BUBBLE_FG, relief=tk.FLAT,
+            height=1, width=30, state=tk.DISABLED, cursor="arrow",
+            borderwidth=0, highlightthickness=0,
         )
-        self._bubble_text.pack(fill=tk.BOTH, expand=True)
 
+        # Hint label for bubble
         self._bubble_hint = tk.Label(
-            self._bubble_frame, text="", font=("Segoe UI", 8),
-            fg=FG_DIM, bg=BUBBLE_BG, anchor=tk.E,
+            self._bubble_canvas, text="", font=("Segoe UI", 8),
+            fg=HINT_FG, bg=BUBBLE_BG, anchor=tk.E,
         )
-        self._bubble_hint.pack(fill=tk.X)
 
-        # ── Pet emoji ──
+        # Drag on bubble
+        self._bubble_canvas.bind("<Button-1>", self._drag_start)
+        self._bubble_canvas.bind("<B1-Motion>", self._drag_move)
+
+        # ── Pet sprite ──
         self._pet_label = tk.Label(
-            self._frame, text=PET_EMOJI[PetState.SLEEPING],
-            font=("Segoe UI Emoji", 32), bg=BG, fg=FG, cursor="hand2",
+            self._frame, bg=CHROMA, cursor="hand2",
+            width=SPRITE_SIZE, height=SPRITE_SIZE,
         )
-        self._pet_label.pack(pady=(0, 2))
+        self._pet_label.pack(pady=(4, 0))
         self._pet_label.bind("<Button-1>", self._drag_start)
         self._pet_label.bind("<B1-Motion>", self._drag_move)
 
-        # ── Status line ──
-        self._status = tk.Label(
-            self._frame, text="zzZ", font=("Segoe UI", 8),
-            fg=FG_DIM, bg=BG,
+        # ── Status pill badge ──
+        self._status_font = tkfont.Font(family="Segoe UI", size=9, weight="bold")
+        self._status_canvas = tk.Canvas(
+            self._frame, bg=CHROMA, highlightthickness=0,
+            height=26,
         )
-        self._status.pack()
+        self._status_canvas.pack(pady=(0, 4))
+        self._status_canvas.bind("<Button-1>", self._drag_start)
+        self._status_canvas.bind("<B1-Motion>", self._drag_move)
+        self._status_pill = None  # canvas item id
+        self._status_text_id = None  # canvas item id
+        self._update_status("zzZ")
 
-        # ── Input row (hidden by default) ──
-        self._input_frame = tk.Frame(self._frame, bg=BG)
-        # not packed yet — shown when listening
+        # ── Input canvas (hidden by default) ──
+        self._input_canvas = tk.Canvas(
+            self._frame, bg=CHROMA, highlightthickness=0,
+            width=canvas_w, height=INPUT_H,
+        )
 
+        # Pill-shaped background (narrower)
+        pill_x1 = INPUT_PAD_X
+        pill_x2 = canvas_w - INPUT_PAD_X
+        pill_mid = (pill_x1 + pill_x2) // 2
+        _create_rounded_rect(
+            self._input_canvas, pill_x1, 2, pill_x2, INPUT_H - 2,
+            r=INPUT_R, fill=INPUT_BG, outline=INPUT_BORDER, width=1,
+        )
+
+        # Entry widget inside pill
+        pill_inner_w = pill_x2 - pill_x1
         self._entry = tk.Entry(
-            self._input_frame, font=("Segoe UI", 10),
-            bg=INPUT_BG, fg=FG, insertbackground=FG, relief=tk.FLAT,
+            self._input_canvas, font=("Segoe UI", 9),
+            bg=INPUT_BG, fg="#000000", insertbackground="#000000",
+            relief=tk.FLAT, borderwidth=0, highlightthickness=0,
         )
-        self._entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+        self._input_canvas.create_window(
+            pill_mid - 14, INPUT_H // 2,
+            window=self._entry, width=pill_inner_w - 62, height=INPUT_H - 12,
+        )
         self._entry.bind("<Return>", self._on_enter)
 
+        # Send button
         self._send_btn = tk.Button(
-            self._input_frame, text="▶", font=("Segoe UI", 10),
-            bg=ACCENT, fg=BG, relief=tk.FLAT, padx=8,
+            self._input_canvas, text="\u2191", font=("Segoe UI", 9, "bold"),
+            bg=ACCENT, fg="#FFFFFF", relief=tk.FLAT,
+            activebackground="#005EC4", activeforeground="#FFFFFF",
+            cursor="hand2", borderwidth=0, highlightthickness=0,
             command=lambda: self._on_enter(None),
         )
-        self._send_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        self._input_canvas.create_window(
+            pill_x2 - 20, INPUT_H // 2,
+            window=self._send_btn, width=26, height=26,
+        )
 
         # Escape to dismiss
         self._root.bind("<Escape>", lambda e: self._dismiss())
 
-        # Start animation tick
+        # Pick initial resting animation & start tick
+        self._sprites.pick_random("resting")
         self._tick()
 
         self._ready.set()
         self._root.mainloop()
+
+    # ── Bubble auto-sizing ──
+
+    def _measure_text_height(self, text):
+        """Estimate pixel height needed to display text in the bubble."""
+        available_w = self._canvas_w - 40
+        line_h = self._measure_font.metrics("linespace")
+
+        total_lines = 0
+        for line in text.split('\n'):
+            if not line:
+                total_lines += 1
+                continue
+            line_px = self._measure_font.measure(line)
+            total_lines += max(1, -(-line_px // available_w))  # ceil division
+
+        return max(total_lines * line_h + 8, BUBBLE_MIN_TEXT_H)
+
+    def _update_bubble(self, text, hint=""):
+        """Redraw bubble canvas sized to fit text, return total height."""
+        canvas_w = self._canvas_w
+        available_w = canvas_w - 40
+
+        text_h = min(self._measure_text_height(text), BUBBLE_MAX_TEXT_H)
+        hint_h = 22 if hint else 0
+        bubble_h = BUBBLE_PAD_TOP + text_h + hint_h + BUBBLE_PAD_BOTTOM
+        total_h = bubble_h + BUBBLE_TAIL_H
+
+        # Resize and redraw canvas
+        self._bubble_canvas.config(height=total_h)
+        self._bubble_canvas.delete("all")
+
+        # Rounded rect body
+        _create_rounded_rect(
+            self._bubble_canvas, 4, 4, canvas_w - 4, bubble_h,
+            r=CORNER_R, fill=BUBBLE_BG, outline="",
+        )
+
+        # Tail pointing down toward the dog
+        mid = canvas_w // 2
+        self._bubble_canvas.create_polygon(
+            mid - 10, bubble_h - 2,
+            mid, bubble_h + BUBBLE_TAIL_H - 2,
+            mid + 10, bubble_h - 2,
+            fill=BUBBLE_BG, outline="", smooth=False,
+        )
+
+        # Place text
+        self._bubble_text.config(state=tk.NORMAL)
+        self._bubble_text.delete("1.0", tk.END)
+        self._bubble_text.insert("1.0", text)
+        self._bubble_text.config(state=tk.DISABLED)
+
+        text_center_y = BUBBLE_PAD_TOP + text_h // 2 + 4
+        self._bubble_canvas.create_window(
+            canvas_w // 2, text_center_y,
+            window=self._bubble_text, width=available_w, height=text_h,
+        )
+
+        # Place hint
+        if hint:
+            self._bubble_hint.config(text=hint)
+            self._bubble_canvas.create_window(
+                canvas_w // 2, bubble_h - BUBBLE_PAD_BOTTOM // 2 - 2,
+                window=self._bubble_hint, width=available_w,
+            )
+
+        # Show bubble if not already visible
+        if not self._bubble_canvas.winfo_ismapped():
+            self._bubble_canvas.pack(fill=tk.X, padx=8, before=self._pet_label)
+
+        self._bubble_total_h = total_h
+        return total_h
+
+    def _update_status(self, text):
+        """Redraw the status pill badge with new text."""
+        self._status_canvas.delete("all")
+        text_w = self._status_font.measure(text)
+        pill_w = text_w + 24
+        pill_h = 22
+        cx = self._canvas_w // 2
+        x1 = cx - pill_w // 2
+        x2 = cx + pill_w // 2
+        y1 = 2
+        y2 = y1 + pill_h
+        _create_rounded_rect(
+            self._status_canvas, x1, y1, x2, y2,
+            r=pill_h // 2, fill=STATUS_BG, outline="",
+        )
+        self._status_canvas.create_text(
+            cx, y1 + pill_h // 2,
+            text=text, font=self._status_font, fill=STATUS_FG,
+        )
+        self._status_canvas.config(width=self._canvas_w)
+
+    def _set_window_height(self, bubble_h=0, with_input=False):
+        """Resize window anchored at bottom edge."""
+        x = self._root.winfo_x()
+        bottom = self._root.winfo_y() + self._root.winfo_height()
+
+        new_h = BASE_H
+        if bubble_h > 0:
+            new_h += bubble_h + 8
+        if with_input:
+            new_h += INPUT_AREA_H
+
+        self._root.geometry(f"{WINDOW_W}x{new_h}+{x}+{bottom - new_h}")
 
     # ── Animation tick ──
 
@@ -129,61 +339,52 @@ class OverlayWindow:
         self._pet.tick()
         anim = self._pet.get_animation()
 
-        # Sleeping breathing animation
-        if anim.state == PetState.SLEEPING:
-            idx = anim.frame_index % len(SLEEP_FRAMES)
-            self._pet_label.config(text=SLEEP_FRAMES[idx])
-        else:
-            self._pet_label.config(text=PET_EMOJI.get(anim.state, "🐕"))
+        state_name = anim.state.value
+        frame = self._sprites.get_frame(state_name, anim.frame_index)
+        if frame:
+            self._photo = ImageTk.PhotoImage(frame)
+            self._pet_label.config(image=self._photo)
 
-        self._root.after(500, self._tick)
+        self._root.after(FRAME_MS, self._tick)
 
     # ── State change handler ──
 
     def _on_pet_state_change(self):
-        anim = self._pet.get_animation()
-        self._root.attributes("-alpha", anim.opacity)
-
-        # Resize window based on state
-        sw = self._root.winfo_screenwidth()
+        state = self._pet.get_animation().state
+        state_name = state.value
         x = self._root.winfo_x()
-        y = self._root.winfo_y()
+        bottom = self._root.winfo_y() + self._root.winfo_height()
 
-        if anim.state in (PetState.SLEEPING, PetState.WAKING, PetState.RESTING):
-            self._bubble_frame.pack_forget()
-            self._input_frame.pack_forget()
-            self._root.geometry(f"320x140+{x}+{y}")
-            self._status.config(text="zzZ" if anim.state == PetState.SLEEPING else "...")
+        # Pick random sprite sheet for states with multiple options
+        self._sprites.pick_random(state_name)
 
-        elif anim.state == PetState.LISTENING:
-            self._bubble_frame.pack_forget()
-            self._input_frame.pack(fill=tk.X, pady=(4, 0))
-            self._root.geometry(f"320x180+{x}+{y}")
+        if state == PetState.RESTING:
+            self._bubble_canvas.pack_forget()
+            self._input_canvas.pack_forget()
+            new_h = H_RESTING
+            self._root.geometry(f"{WINDOW_W}x{new_h}+{x}+{bottom - new_h}")
+            self._update_status("zzZ")
+
+        elif state == PetState.AWAKE:
+            self._bubble_canvas.pack_forget()
+            self._input_canvas.pack(pady=(4, 8))
+            new_h = H_AWAKE
+            self._root.geometry(f"{WINDOW_W}x{new_h}+{x}+{bottom - new_h}")
             self._entry.delete(0, tk.END)
             self._entry.config(state=tk.NORMAL)
             self._send_btn.config(state=tk.NORMAL)
-            self._status.config(text="问点什么？")
+            self._update_status("Ask me anything!")
             self._root.after(100, lambda: self._entry.focus_set())
 
-        elif anim.state == PetState.THINKING:
-            self._input_frame.pack_forget()
-            self._bubble_frame.pack(fill=tk.BOTH, expand=True, before=self._pet_label)
-            self._bubble_text.config(state=tk.NORMAL)
-            self._bubble_text.delete("1.0", tk.END)
-            self._bubble_text.insert("1.0", "思考中...")
-            self._bubble_text.config(state=tk.DISABLED)
-            self._bubble_hint.config(text="")
-            self._root.geometry(f"320x340+{x}+{y}")
-            self._status.config(text="🤔 嗯...")
+        elif state == PetState.THINKING:
+            self._input_canvas.pack_forget()
+            bubble_h = self._update_bubble("Thinking...")
+            self._set_window_height(bubble_h=bubble_h)
+            self._update_status("Hmm...")
 
-        elif anim.state == PetState.ANSWERING:
-            self._input_frame.pack(fill=tk.X, pady=(4, 0))
-            self._entry.delete(0, tk.END)
-            self._entry.config(state=tk.NORMAL)
-            self._send_btn.config(state=tk.NORMAL)
-            self._root.geometry(f"320x380+{x}+{y}")
-            self._status.config(text="继续提问，或按 Esc 关闭")
-            self._root.after(100, lambda: self._entry.focus_set())
+        elif state == PetState.REPLY:
+            # Layout handled by _show_answer — just update status here
+            self._update_status("Ask more, or Esc to close")
 
     # ── Public API ──
 
@@ -232,17 +433,22 @@ class OverlayWindow:
             self._image = None  # only send image on first question
             self._root.after(0, self._show_answer, answer)
         except Exception as e:
-            self._root.after(0, self._show_answer, f"出错了: {e}")
+            self._root.after(0, self._show_answer, f"Error: {e}")
 
     def _show_answer(self, answer):
         self._pet.trigger("answer")
 
-        # Fill bubble with answer
-        self._bubble_text.config(state=tk.NORMAL)
-        self._bubble_text.delete("1.0", tk.END)
-        self._bubble_text.insert("1.0", answer)
-        self._bubble_text.config(state=tk.DISABLED)
-        self._bubble_hint.config(text="Esc 关闭 · Enter 追问")
+        # Draw auto-sized bubble with answer
+        bubble_h = self._update_bubble(answer, hint="Esc close \u00b7 Enter follow-up")
+
+        # Show input for follow-up
+        self._input_canvas.pack(pady=(4, 8))
+        self._entry.delete(0, tk.END)
+        self._entry.config(state=tk.NORMAL)
+        self._send_btn.config(state=tk.NORMAL)
+
+        self._set_window_height(bubble_h=bubble_h, with_input=True)
+        self._root.after(100, lambda: self._entry.focus_set())
 
     # ── Drag to move ──
 

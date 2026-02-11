@@ -10,9 +10,26 @@ from PIL import Image
 user32 = ctypes.windll.user32
 
 
-def get_active_hwnd() -> int:
-    """Return the handle of the foreground window."""
-    return user32.GetForegroundWindow()
+def get_active_hwnd(skip_hwnd: int = 0) -> int:
+    """Return the handle of the foreground window.
+
+    If skip_hwnd is set and the foreground window matches it,
+    walk the Z-order to find the next visible, appropriately-sized window.
+    """
+    hwnd = user32.GetForegroundWindow()
+    if skip_hwnd and hwnd == skip_hwnd:
+        GW_HWNDNEXT = 2
+        candidate = user32.GetWindow(hwnd, GW_HWNDNEXT)
+        while candidate:
+            if user32.IsWindowVisible(candidate):
+                rect = wintypes.RECT()
+                user32.GetWindowRect(candidate, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 200 and h > 200:
+                    return candidate
+            candidate = user32.GetWindow(candidate, GW_HWNDNEXT)
+    return hwnd
 
 
 def get_window_title(hwnd: int = 0) -> str:
