@@ -36,6 +36,14 @@ Implementation note:
 - Wake-up from hotkey and wake-up from mouse click share the same activation pipeline.
 - If overlay is foreground during activation, the code attempts to skip overlay and recover your previous real window.
 
+## Pet States
+
+| Resting (`zzZ`) | Awake (`Ask me anything!`) |
+|---|---|
+| ![Resting state](assets/shiba/resting/Resting1.png) | ![Awake state](assets/shiba/awake/Awakening1.png) |
+| Thinking (`Hmm...`) | Reply (`Ask more, or Esc to close`) |
+| ![Thinking state](assets/shiba/thinking/Thinking1.png) | ![Reply state](assets/shiba/reply/Replying1.png) |
+
 ## Hotkeys and Controls
 
 | Action | Control |
