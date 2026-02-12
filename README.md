@@ -13,6 +13,10 @@ A tiny Shiba that lives in your screen corner and helps you unstuck.
 
 BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who leans over, takes a quick look at your screen, and gives you a short, practical answer.
 
+The original pain point was simple: I was asking ChatGPT a lot of practical questions, but each time I had to manually take screenshots or copy/paste email context before I could ask.
+
+BuddyGPT removes that repetitive overhead. Instead of "screenshot -> copy context -> paste -> ask", you wake the dog and ask directly, so the whole flow feels smoother and more natural.
+
 ## What BuddyGPT Is
 
 BuddyGPT is a desktop companion for lightweight help:
