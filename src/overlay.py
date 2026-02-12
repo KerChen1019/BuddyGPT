@@ -27,6 +27,7 @@ HINT_FG = "#8E8E93"
 
 SPRITE_SIZE = 128
 FRAME_MS = 160  # milliseconds per animation frame
+AUTO_REST_MS = 15000
 
 WINDOW_W = 320
 
@@ -73,8 +74,9 @@ def _create_rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
 
 
 class OverlayWindow:
-    def __init__(self, on_submit):
+    def __init__(self, on_submit, on_activate=None):
         self._on_submit = on_submit
+        self._on_activate = on_activate
         self._root: tk.Tk | None = None
         self._hwnd: int = 0
         self._image: Image.Image | None = None
@@ -82,8 +84,10 @@ class OverlayWindow:
         self._sprites = SpriteManager(frame_size=SPRITE_SIZE, chroma=CHROMA_RGB)
         self._ready = threading.Event()
         self._drag_data = {"x": 0, "y": 0}
+        self._drag_moved = False
         self._photo: ImageTk.PhotoImage | None = None
         self._bubble_total_h = 0  # current bubble height (including tail)
+        self._idle_after_id: str | None = None
 
         self._pet.on_state_change(
             lambda old, new: self._root.after(0, self._on_pet_state_change)
@@ -161,6 +165,7 @@ class OverlayWindow:
         self._pet_label.pack(pady=(4, 0))
         self._pet_label.bind("<Button-1>", self._drag_start)
         self._pet_label.bind("<B1-Motion>", self._drag_move)
+        self._pet_label.bind("<ButtonRelease-1>", self._on_pet_click)
 
         # ── Status pill badge ──
         self._status_font = tkfont.Font(family="Segoe UI", size=9, weight="bold")
@@ -202,6 +207,7 @@ class OverlayWindow:
             window=self._entry, width=pill_inner_w - 62, height=INPUT_H - 12,
         )
         self._entry.bind("<Return>", self._on_enter)
+        self._entry.bind("<KeyPress>", self._on_entry_activity)
 
         # Send button
         self._send_btn = tk.Button(
@@ -359,6 +365,7 @@ class OverlayWindow:
         self._sprites.pick_random(state_name)
 
         if state == PetState.RESTING:
+            self._cancel_auto_rest()
             self._bubble_canvas.pack_forget()
             self._input_canvas.pack_forget()
             new_h = H_RESTING
@@ -366,6 +373,7 @@ class OverlayWindow:
             self._update_status("zzZ")
 
         elif state == PetState.AWAKE:
+            self._cancel_auto_rest()
             self._bubble_canvas.pack_forget()
             self._input_canvas.pack(pady=(4, 8))
             new_h = H_AWAKE
@@ -377,6 +385,7 @@ class OverlayWindow:
             self._root.after(100, lambda: self._entry.focus_set())
 
         elif state == PetState.THINKING:
+            self._cancel_auto_rest()
             self._input_canvas.pack_forget()
             bubble_h = self._update_bubble("Thinking...")
             self._set_window_height(bubble_h=bubble_h)
@@ -409,6 +418,7 @@ class OverlayWindow:
     # ── Dismiss / hide ──
 
     def _dismiss(self):
+        self._cancel_auto_rest()
         self._pet.trigger("dismiss")
 
     # ── Input handling ──
@@ -418,6 +428,7 @@ class OverlayWindow:
         if not question:
             return
 
+        self._cancel_auto_rest()
         self._entry.delete(0, tk.END)
         self._entry.config(state=tk.DISABLED)
         self._send_btn.config(state=tk.DISABLED)
@@ -449,14 +460,43 @@ class OverlayWindow:
 
         self._set_window_height(bubble_h=bubble_h, with_input=True)
         self._root.after(100, lambda: self._entry.focus_set())
+        self._schedule_auto_rest()
+
+    def _on_entry_activity(self, _event):
+        # User started interacting after a reply; don't auto-dismiss this turn.
+        self._cancel_auto_rest()
+
+    def _schedule_auto_rest(self):
+        self._cancel_auto_rest()
+        if self._root:
+            self._idle_after_id = self._root.after(AUTO_REST_MS, self._dismiss)
+
+    def _cancel_auto_rest(self):
+        if self._root and self._idle_after_id:
+            self._root.after_cancel(self._idle_after_id)
+            self._idle_after_id = None
 
     # ── Drag to move ──
 
     def _drag_start(self, event):
+        self._drag_moved = False
         self._drag_data["x"] = event.x_root - self._root.winfo_x()
         self._drag_data["y"] = event.y_root - self._root.winfo_y()
 
     def _drag_move(self, event):
+        self._drag_moved = True
         x = event.x_root - self._drag_data["x"]
         y = event.y_root - self._drag_data["y"]
         self._root.geometry(f"+{x}+{y}")
+
+    def _on_pet_click(self, _event):
+        # Click-to-wake only when resting; drag release should not activate.
+        if self._drag_moved:
+            return
+        if self._pet.get_animation().state != PetState.RESTING:
+            return
+
+        if self._on_activate:
+            threading.Thread(target=self._on_activate, daemon=True).start()
+        else:
+            self._do_show()

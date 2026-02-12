@@ -82,7 +82,10 @@ def main():
     print("=" * 50)
 
     # UI overlay
-    overlay = OverlayWindow(on_submit=on_submit)
+    overlay = OverlayWindow(
+        on_submit=on_submit,
+        on_activate=lambda: on_activate(overlay),
+    )
     print("UI 已就绪。")
 
     # Screen monitor

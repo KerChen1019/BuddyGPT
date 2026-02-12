@@ -1,149 +1,202 @@
 # BuddyGPT
 
-A little Shiba that lives on your desktop.
+A tiny Shiba that lives in your screen corner and helps you unstuck.
 
-It doesn't do your work. It doesn't write your emails. It just sits there, napping in the corner of your screen — until you get stuck, glance over, and ask "hey, what's this?"
+BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who leans over, takes a quick look at your screen, and gives you a short, practical answer.
 
-Then it wakes up, peeks at your screen, and says something like:
+## What BuddyGPT Is
 
-> "Oh, `user` is None here. Just use `.get()` and you're good."
+BuddyGPT is a desktop companion for lightweight help:
+- "What does this email actually want?"
+- "Why is this error happening?"
+- "Is this page worth reading?"
 
-That's it. Like a colleague sitting next to you who happens to be good at everything.
+It stays out of your way, then helps when you ask.
 
-## What it is
+## How It Works
 
-BuddyGPT is a **desktop companion**, not an AI assistant.
+1. **Resting mode**: the Shiba hangs out in the corner.
+2. **Wake up**: press `Ctrl+Shift+Space` or click the dog.
+3. **Context capture**: BuddyGPT captures your **last active window before wake-up**.
+4. **Ask**: type your question and press `Enter`.
+5. **Thinking -> Reply**: it analyzes your context and gives a short answer.
+6. **Back to rest**:
+- Press `Esc` to dismiss immediately.
+- If there is no user response after a reply, it auto-returns to `resting` after **15 seconds**.
 
-The difference matters:
-- An assistant takes your task and does it for you
-- A companion **sits with you** while you do it yourself
+## Last Active Window Behavior
 
-When you're reading a long email and can't figure out what they actually want — you ask. When you're staring at an error message at 2am — you ask. When you're on a webpage and just want someone to tell you if it's worth reading — you ask.
+BuddyGPT tries to answer based on what you were just working on.
 
-It glances at your screen, gives you a short nudge in the right direction, and goes back to sleep.
+Examples:
+- If you were writing an email, it captures that email window.
+- If you were on a browser tab, it captures that tab window.
 
-## How it works
+Implementation note:
+- Wake-up from hotkey and wake-up from mouse click share the same activation pipeline.
+- If overlay is foreground during activation, the code attempts to skip overlay and recover your previous real window.
 
-A small Shiba lives in the corner of your screen:
+## Hotkeys and Controls
 
-```
-💤        ← sleeping, semi-transparent, out of your way
-🐕
-```
-
-Press **Ctrl+Shift+Space** anywhere — it wakes up:
-
-```
-👂        ← ears up, ready to listen
-🐕
-[ask me anything___]
-```
-
-Ask a question — it thinks:
-
-```
-🤔        ← peeking at your screen
-🐕
-[thinking...]
-```
-
-Then gives you a quick answer in an auto-sized bubble:
-
-```
-┌──────────────────────────────┐
-│ He's just asking for the     │
-│ report by Friday. Include    │
-│ Q3 data and you're good.     │
-└──────────────────────────────┘
-😊
-🐕
-[follow up or Esc to close___]
-```
-
-Press **Esc** — it yawns and goes back to sleep. That's the whole interaction.
+| Action | Control |
+|---|---|
+| Wake and capture context | `Ctrl+Shift+Space` |
+| Wake and capture context | Click the dog |
+| Send question | `Enter` |
+| Dismiss current session | `Esc` |
+| Quit app | `Ctrl+Shift+Q` |
 
 ## Features
 
-- **Animated Shiba pet** — custom sprite sheet animations for each state (resting, awake, thinking, reply), with transparent background and no green fringing
-- **Sees what you see** — captures your active window when you ask, knows if you're in Gmail, VS Code, Terminal, Excel, Slack, and more
-- **Smart about context** — filters out UI noise (sidebars, nav bars) and adjusts its tone based on what app you're using
-- **Web search** — when you ask about current events or need to look something up, the Shiba can search the web via DuckDuckGo and summarize results
-- **Matches your language** — ask in English, get English back. Ask in Chinese, get Chinese back. Automatic, no setting needed
-- **Short answers only** — responds like a colleague, not an encyclopedia. 2-3 sentences max
-- **Auto-sized chat bubble** — the reply bubble grows and shrinks to fit the content. Short answer = small bubble
-- **iOS-style UI** — rounded pill input bar, status badge, smooth chat bubble with tail pointer
-- **Always on top, never in the way** — semi-transparent pet sits on your desktop, draggable anywhere
+- Animated Shiba states: `resting` / `awake` / `thinking` / `reply`
+- Active-window screenshot understanding
+- App-aware context filtering
+- Optional web lookup (DuckDuckGo) when needed
+- Short, colleague-style answers
+- Language matching (ask in Chinese, get Chinese; ask in English, get English)
 
-## Quick Start
+## Setup
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure API key (pick one)
-echo ANTHROPIC_API_KEY=sk-ant-xxx > .env
-# Or: copy config.example.json config.json and edit
-
-# Run
 py main.py
 ```
 
-## Hotkeys
-
-| Shortcut | What it does |
-|----------|-------------|
-| **Ctrl+Shift+Space** | Wake up the Shiba, capture current screen |
-| **Enter** | Send your question |
-| **Esc** | Dismiss, Shiba goes back to sleep |
-| **Ctrl+Shift+Q** | Quit the program |
-
-All hotkeys work from any window, no admin rights needed.
-
 ## Configuration
 
-Edit `config.json`:
+Use `config.json`:
 
 ```json
 {
-    "api_key": "",
-    "model": "claude-sonnet-4-20250514",
-    "hotkey_activate": "ctrl+shift+space",
-    "hotkey_quit": "ctrl+shift+q",
-    "screenshot_interval": 3.0,
-    "hash_threshold": 12,
-    "max_tokens": 1024
+  "api_key": "",
+  "model": "claude-sonnet-4-20250514",
+  "hotkey_activate": "ctrl+shift+space",
+  "hotkey_quit": "ctrl+shift+q",
+  "screenshot_interval": 3.0,
+  "hash_threshold": 12,
+  "max_tokens": 1024
 }
 ```
 
-Or set `ANTHROPIC_API_KEY` in a `.env` file.
+Or use `.env`:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-xxx
+```
+
+Config priority in current code:
+1. If `config.json` has non-empty `api_key`, that key is used.
+2. Otherwise fallback to `.env` `ANTHROPIC_API_KEY`.
+
+## Token Usage (Detailed)
+
+### When tokens are NOT used
+
+No model tokens are consumed for:
+- idle animation
+- wake-up UI itself
+- local window detection
+- local screenshot capture/filtering
+- drag/move UI actions
+- auto-return to resting
+
+### When tokens ARE used
+
+Model tokens are consumed when:
+- you send a question (`Enter`)
+- you send follow-up questions
+- tool-use triggers extra model rounds (for web lookup flow)
+
+### What contributes to token count
+
+Per request, usage is roughly:
+- **Input tokens**: system prompt + your question + conversation history + attached context
+- **Output tokens**: assistant reply
+
+Important details:
+- First turn commonly includes the captured window image.
+- Image content can significantly increase input token usage.
+- Longer follow-up chains increase history size and input tokens.
+
+### What `max_tokens` actually does
+
+- `max_tokens` limits **output tokens per model call**.
+- It does **not** limit input tokens.
+- If tool-use causes multiple model calls, each call has its own output cap.
+
+### How to inspect token usage
+
+Runtime logs already print:
+- `input_tokens`
+- `output_tokens`
+
+You can use this to identify high-cost workflows.
+
+### Practical ways to reduce token cost
+
+- Ask more specific questions in one turn.
+- Keep sessions shorter when possible.
+- Avoid unnecessary web-search style prompts.
+- Wake and ask from cleaner, less noisy screens.
+
+## Privacy and Data Boundaries (Detailed)
+
+### What stays local
+
+These happen locally on your machine:
+- hotkey listening
+- mouse click wake handling
+- active window detection
+- screenshot capture and filtering
+- UI rendering and pet state machine
+
+Conversation history is held in memory and cleared on each new wake-up session.
+
+### What may be sent externally
+
+When you submit a question, request payload may include:
+- your question text
+- captured screenshot context
+- prompt/context strings
+
+If web lookup is triggered, additional query/result text may be exchanged in the tool-use flow.
+
+### API key handling
+
+- API key can come from `config.json` or `.env`.
+- Both `.env` and `config.json` are gitignored in this project.
+- Best practice: keep a single source of truth (usually `.env`).
+
+### Main privacy risks
+
+- screenshots may contain sensitive info (email content, customer data, internal links)
+- terminal windows may expose secrets
+- logs/screenshots shared externally can leak data
+
+### Privacy best practices
+
+- Check the foreground window before waking BuddyGPT.
+- Mask sensitive content before asking.
+- Rotate API keys immediately if exposure is suspected.
+- Do not share logs/screenshots/configs that may contain secrets.
 
 ## Project Structure
 
-```
+```text
 BuddyGPT/
-├── main.py                # Entry point
-├── config.json            # Your config (gitignored)
-├── config.example.json    # Config template
-├── requirements.txt
-├── src/
-│   ├── overlay.py         # Desktop pet UI (tkinter, auto-sizing bubble, pill badge)
-│   ├── pet.py             # Pet state machine (resting → awake → thinking → reply)
-│   ├── sprites.py         # Sprite sheet loader (4x4 grid PNGs, hard alpha threshold)
-│   ├── prompts.py         # Personality & conversation style
-│   ├── ai_assistant.py    # Claude API (vision + multi-round tool use)
-│   ├── web_search.py      # DuckDuckGo web search via ddgs
-│   ├── app_detector.py    # Detect current app (Gmail, VS Code, etc.)
-│   ├── content_filter.py  # Crop screenshots to remove UI noise
-│   ├── screenshot.py      # Screen capture (multi-monitor, per-window)
-│   ├── monitor.py         # Background change detection
-│   ├── hotkey.py          # Global hotkey listener
-│   └── config.py          # Config loader with .env fallback
-├── assets/shiba/          # Pet sprite sheets (4x4 grid PNGs)
-│   ├── resting/
-│   ├── awake/
-│   ├── thinking/
-│   └── reply/
-└── tests/
+|-- main.py
+|-- config.example.json
+|-- requirements.txt
+|-- src/
+|   |-- overlay.py
+|   |-- pet.py
+|   |-- ai_assistant.py
+|   |-- screenshot.py
+|   |-- content_filter.py
+|   |-- app_detector.py
+|   |-- web_search.py
+|   '-- ...
+'-- assets/
 ```
 
 ## Requirements
@@ -151,3 +204,5 @@ BuddyGPT/
 - Windows 10/11
 - Python 3.12+
 - Anthropic API key
+
+If you see the little Shiba napping, everything is working as intended.
