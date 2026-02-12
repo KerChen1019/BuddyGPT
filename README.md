@@ -40,9 +40,9 @@ Implementation note:
 
 | Resting (`zzZ`) | Awake (`Ask me anything!`) |
 |---|---|
-| ![Resting state](assets/shiba/resting/Resting1.png) | ![Awake state](assets/shiba/awake/Awakening1.png) |
+| ![Resting state](assets/shiba/states/state-resting.png) | ![Awake state](assets/shiba/states/state-awake.png) |
 | Thinking (`Hmm...`) | Reply (`Ask more, or Esc to close`) |
-| ![Thinking state](assets/shiba/thinking/Thinking1.png) | ![Reply state](assets/shiba/reply/Replying1.png) |
+| ![Thinking state](assets/shiba/states/state-thinking.png) | ![Reply state](assets/shiba/states/state-reply.png) |
 
 ## Hotkeys and Controls
 
