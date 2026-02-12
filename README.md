@@ -1,5 +1,14 @@
 # BuddyGPT
 
+## Quick Install (Windows)
+
+1. Download the latest installer: `BuddyGPT-Setup.exe` (from Releases).
+2. Double-click the installer and complete setup.
+3. Launch BuddyGPT from Start Menu.
+4. On first wake-up, paste your Anthropic API key when the dog asks.
+
+That is it - install, wake, ask.
+
 A tiny Shiba that lives in your screen corner and helps you unstuck.
 
 BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who leans over, takes a quick look at your screen, and gives you a short, practical answer.
@@ -17,6 +26,7 @@ It stays out of your way, then helps when you ask.
 
 1. **Resting mode**: the Shiba hangs out in the corner.
 2. **Wake up**: press `Ctrl+Shift+Space` or click the dog.
+   - On first run (when no API key is configured), BuddyGPT enters onboarding and asks you to paste your API key.
 3. **Context capture**: BuddyGPT captures your **last active window before wake-up**.
 4. **Ask**: type your question and press `Enter`.
 5. **Thinking -> Reply**: it analyzes your context and gives a short answer.
@@ -44,15 +54,17 @@ Implementation note:
 | Thinking (`Hmm...`) | Reply (`Ask more, or Esc to close`) |
 | ![Thinking state](assets/shiba/states/state-thinking.png) | ![Reply state](assets/shiba/states/state-reply.png) |
 
-## Hotkeys and Controls
+Pet character attribution: from **누댕 Nudaeng** (`@nudaengdotbonk`).
 
-| Action | Control |
+## Hotkeys and Use Cases
+
+| Hotkey / Action | Typical Use Case |
 |---|---|
-| Wake and capture context | `Ctrl+Shift+Space` |
-| Wake and capture context | Click the dog |
-| Send question | `Enter` |
-| Dismiss current session | `Esc` |
-| Quit app | `Ctrl+Shift+Q` |
+| `Ctrl+Shift+Space` | Wake BuddyGPT while you are reading an email, ticket, or docs page and want quick help. |
+| Click the dog | Same as hotkey wake-up when your hand is already on the mouse. |
+| `Enter` | Send your question after BuddyGPT captures context. |
+| `Esc` | Close the current session immediately and send the dog back to rest. |
+| `Ctrl+Shift+Q` | Quit BuddyGPT completely when you are done for the day. |
 
 ## Features
 
@@ -68,6 +80,54 @@ Implementation note:
 ```bash
 pip install -r requirements.txt
 py main.py
+```
+
+## Windows Installer
+
+Build a Windows app + installer from this repo:
+
+```powershell
+# from repository root
+.\scripts\build_windows.ps1
+```
+
+Build only the app (skip Setup.exe):
+
+```powershell
+.\scripts\build_windows.ps1 -SkipInstaller
+```
+
+If your default Python is not the build target, set it explicitly:
+
+```powershell
+.\scripts\build_windows.ps1 -PythonCmd "py -3.12"
+```
+
+If your network requires a custom package index:
+
+```powershell
+.\scripts\build_windows.ps1 -PipIndexUrl "https://pypi.org/simple"
+```
+
+Outputs:
+- App folder: `dist\BuddyGPT\`
+- Single EXE: `dist\BuddyGPT\BuddyGPT.exe`
+- Installer (when Inno Setup is available): `dist\installer\BuddyGPT-Setup.exe`
+
+Notes:
+- The script uses PyInstaller for EXE packaging.
+- Setup builder uses Inno Setup (`iscc.exe`) via `packaging\BuddyGPT.iss`.
+- If `pyinstaller` cannot be resolved, provide a reachable index URL with `-PipIndexUrl`.
+
+## Uninstall
+
+You can uninstall BuddyGPT in three ways:
+- Windows Settings -> Apps -> Installed apps -> BuddyGPT -> Uninstall
+- Start Menu -> BuddyGPT -> `Uninstall BuddyGPT`
+- Silent uninstall (for scripts/IT):
+
+```cmd
+"C:\Program Files\BuddyGPT\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 ## Configuration
@@ -95,6 +155,10 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 Config priority in current code:
 1. If `config.json` has non-empty `api_key`, that key is used.
 2. Otherwise fallback to `.env` `ANTHROPIC_API_KEY`.
+
+Installed app config location:
+- `%APPDATA%\BuddyGPT\config.json`
+- `%APPDATA%\BuddyGPT\.env`
 
 ## Token Usage (Detailed)
 
@@ -214,3 +278,44 @@ BuddyGPT/
 - Anthropic API key
 
 If you see the little Shiba napping, everything is working as intended.
+
+## FAQ
+
+### 1) Is DuckDuckGo web search free?
+
+Yes, search itself is free in this project (no separate search API key).  
+If search is used, total Claude token usage can still increase because extra model rounds are needed to read and summarize search results.
+
+### 2) Does BuddyGPT keep spending tokens while idle?
+
+No. Idle animation, wake-up, and local UI actions do not consume model tokens.  
+Tokens are used only when you submit a question (and optional tool-use rounds).
+
+### 3) Why does BuddyGPT sometimes answer using the wrong window?
+
+BuddyGPT captures the last active window at wake-up.  
+If focus changes right before activation, context may be off. Wake it again while the correct app is focused.
+
+### 4) Why are README images not showing on GitHub?
+
+Usually because image files were not tracked by git due to ignore rules (for example `*.png`).  
+This repo already whitelists the Shiba state image folders in `.gitignore`.
+
+### 5) Do I need both `config.json` and `.env` API keys?
+
+No. Use one source of truth.  
+If `config.json` has a non-empty `api_key`, it takes priority over `.env`.
+
+### 6) Build script says `No matching distribution found for pyinstaller`
+
+This is usually a package index/network issue, not a BuddyGPT issue.  
+Try running the build with a reachable index:
+
+```powershell
+.\scripts\build_windows.ps1 -PythonCmd "py -3.12" -PipIndexUrl "https://pypi.org/simple"
+```
+
+### 7) What happens on first launch after install?
+
+If BuddyGPT cannot find an API key, it starts an onboarding prompt on wake-up.  
+Paste your Anthropic key in the dog input box and press `Enter`, and BuddyGPT will save it to `config.json` automatically.

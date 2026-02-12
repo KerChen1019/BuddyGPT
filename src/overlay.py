@@ -403,6 +403,10 @@ class OverlayWindow:
         if self._root:
             self._root.after(0, self._do_show)
 
+    def show_notice(self, text: str, hint: str = "", status: str = ""):
+        if self._root:
+            self._root.after(150, lambda: self._do_show_notice(text, hint, status))
+
     def _do_show(self):
         self._pet.trigger("activate")
 
@@ -414,6 +418,17 @@ class OverlayWindow:
         # Show and focus
         self._root.deiconify()
         self._root.focus_force()
+
+    def _do_show_notice(self, text: str, hint: str, status: str):
+        bubble_h = self._update_bubble(text, hint=hint)
+        self._input_canvas.pack(pady=(4, 8))
+        self._entry.delete(0, tk.END)
+        self._entry.config(state=tk.NORMAL)
+        self._send_btn.config(state=tk.NORMAL)
+        self._set_window_height(bubble_h=bubble_h, with_input=True)
+        if status:
+            self._update_status(status)
+        self._root.after(100, lambda: self._entry.focus_set())
 
     # ── Dismiss / hide ──
 
