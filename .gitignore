@@ -4,3 +4,9 @@ __pycache__/
 captures/
 .env
 config.json
+
+# Keep test screenshots ignored, but track pet state assets used by README.
+!assets/
+!assets/shiba/
+!assets/shiba/**/
+!assets/shiba/**/*.png
