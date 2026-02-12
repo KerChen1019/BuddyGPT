@@ -47,38 +47,42 @@ Ask a question — it thinks:
 [thinking...]
 ```
 
-Then gives you a quick answer:
+Then gives you a quick answer in an auto-sized bubble:
 
 ```
 ┌──────────────────────────────┐
 │ He's just asking for the     │
 │ report by Friday. Include    │
-│ Q3 data and you're good.    │
+│ Q3 data and you're good.     │
 └──────────────────────────────┘
 😊
 🐕
+[follow up or Esc to close___]
 ```
 
 Press **Esc** — it yawns and goes back to sleep. That's the whole interaction.
 
 ## Features
 
-- **Always there, never in the way** — semi-transparent pet sits on your desktop, draggable anywhere
-- **Sees what you see** — captures your active window when you ask, knows if you're in Gmail, VS Code, Terminal, etc.
+- **Animated Shiba pet** — custom sprite sheet animations for each state (resting, awake, thinking, reply), with transparent background and no green fringing
+- **Sees what you see** — captures your active window when you ask, knows if you're in Gmail, VS Code, Terminal, Excel, Slack, and more
 - **Smart about context** — filters out UI noise (sidebars, nav bars) and adjusts its tone based on what app you're using
-- **Short answers only** — trained to respond like a colleague, not an encyclopedia. 2-3 sentences max
-- **Remembers your window** — even after the chat overlay takes focus, it still watches the window you were on
+- **Web search** — when you ask about current events or need to look something up, the Shiba can search the web via DuckDuckGo and summarize results
+- **Matches your language** — ask in English, get English back. Ask in Chinese, get Chinese back. Automatic, no setting needed
+- **Short answers only** — responds like a colleague, not an encyclopedia. 2-3 sentences max
+- **Auto-sized chat bubble** — the reply bubble grows and shrinks to fit the content. Short answer = small bubble
+- **iOS-style UI** — rounded pill input bar, status badge, smooth chat bubble with tail pointer
+- **Always on top, never in the way** — semi-transparent pet sits on your desktop, draggable anywhere
 
 ## Quick Start
 
 ```bash
-# Install
+# Install dependencies
 pip install -r requirements.txt
 
-# Configure API key
-copy config.example.json config.json
-# Edit config.json and add your Anthropic API key
-# Or: echo ANTHROPIC_API_KEY=sk-ant-xxx > .env
+# Configure API key (pick one)
+echo ANTHROPIC_API_KEY=sk-ant-xxx > .env
+# Or: copy config.example.json config.json and edit
 
 # Run
 py main.py
@@ -89,6 +93,7 @@ py main.py
 | Shortcut | What it does |
 |----------|-------------|
 | **Ctrl+Shift+Space** | Wake up the Shiba, capture current screen |
+| **Enter** | Send your question |
 | **Esc** | Dismiss, Shiba goes back to sleep |
 | **Ctrl+Shift+Q** | Quit the program |
 
@@ -110,6 +115,8 @@ Edit `config.json`:
 }
 ```
 
+Or set `ANTHROPIC_API_KEY` in a `.env` file.
+
 ## Project Structure
 
 ```
@@ -117,30 +124,30 @@ BuddyGPT/
 ├── main.py                # Entry point
 ├── config.json            # Your config (gitignored)
 ├── config.example.json    # Config template
+├── requirements.txt
 ├── src/
-│   ├── overlay.py         # Desktop pet UI (tkinter)
-│   ├── pet.py             # Pet state machine (sleep → wake → think → answer)
+│   ├── overlay.py         # Desktop pet UI (tkinter, auto-sizing bubble, pill badge)
+│   ├── pet.py             # Pet state machine (resting → awake → thinking → reply)
+│   ├── sprites.py         # Sprite sheet loader (4x4 grid PNGs, hard alpha threshold)
 │   ├── prompts.py         # Personality & conversation style
-│   ├── ai_assistant.py    # Claude API (vision)
+│   ├── ai_assistant.py    # Claude API (vision + multi-round tool use)
+│   ├── web_search.py      # DuckDuckGo web search via ddgs
 │   ├── app_detector.py    # Detect current app (Gmail, VS Code, etc.)
 │   ├── content_filter.py  # Crop screenshots to remove UI noise
 │   ├── screenshot.py      # Screen capture (multi-monitor, per-window)
 │   ├── monitor.py         # Background change detection
 │   ├── hotkey.py          # Global hotkey listener
-│   └── config.py          # Config loader
-├── assets/shiba/          # Pet sprites (coming soon)
+│   └── config.py          # Config loader with .env fallback
+├── assets/shiba/          # Pet sprite sheets (4x4 grid PNGs)
+│   ├── resting/
+│   ├── awake/
+│   ├── thinking/
+│   └── reply/
 └── tests/
 ```
 
 ## Requirements
 
-- Windows
+- Windows 10/11
 - Python 3.12+
 - Anthropic API key
-
-## Roadmap
-
-- [ ] Real Shiba sprites to replace emoji
-- [ ] Smoother animations (wake up, think, yawn)
-- [ ] Voice input
-- [ ] Conversation memory across sessions
