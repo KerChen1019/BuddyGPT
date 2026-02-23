@@ -21,6 +21,15 @@ The original pain point was simple: I was asking ChatGPT a lot of practical ques
 
 BuddyGPT removes that repetitive overhead. Instead of "screenshot -> copy context -> paste -> ask", you wake the dog and ask directly, so the whole flow feels smoother and more natural.
 
+## What BuddyGPT Is
+
+BuddyGPT is a desktop companion for lightweight help:
+- "What does this email actually want?"
+- "Why is this error happening?"
+- "Is this page worth reading?"
+
+It stays out of your way, then helps when you ask.
+
 ## Quick Install (Windows)
 
 1. Download the latest installer: `BuddyGPT-Setup.exe` (from Releases).
@@ -30,14 +39,10 @@ BuddyGPT removes that repetitive overhead. Instead of "screenshot -> copy contex
 
 That is it - install, wake, ask.
 
-## What BuddyGPT Is
+## Product Soul
 
-BuddyGPT is a desktop companion for lightweight help:
-- "What does this email actually want?"
-- "Why is this error happening?"
-- "Is this page worth reading?"
-
-It stays out of your way, then helps when you ask.
+- `Soul.md`: product identity, boundaries, and behavior principles.
+- `docs/soul-roadmap.md`: implementation status and future milestones aligned with `Soul.md`.
 
 ## How It Works
 
@@ -71,7 +76,7 @@ Implementation note:
 | Thinking (`Hmm...`) | Reply (`Ask more, or Esc to close`) |
 | ![Thinking state](assets/shiba/states/state-thinking.png) | ![Reply state](assets/shiba/states/state-reply.png) |
 
-Pet character attribution: from **누댕 Nudaeng** (`@nudaengdotbonk`).
+Pet character attribution: from **Nudaeng** (`@nudaengdotbonk`).
 
 ## Hotkeys and Use Cases
 
@@ -345,3 +350,4 @@ Try running the build with a reachable index:
 
 If BuddyGPT cannot find an API key, it starts an onboarding prompt on wake-up.  
 Paste your Anthropic key in the dog input box and press `Enter`, and BuddyGPT will save it to `config.json` automatically.
+
