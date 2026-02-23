@@ -1,14 +1,5 @@
 # BuddyGPT
 
-## Quick Install (Windows)
-
-1. Download the latest installer: `BuddyGPT-Setup.exe` (from Releases).
-2. Double-click the installer and complete setup.
-3. Launch BuddyGPT from Start Menu.
-4. On first wake-up, paste your Anthropic API key when the dog asks.
-
-That is it - install, wake, ask.
-
 ## What's New
 
 - Added scheduled daily news pushes at **3:00 PM** and **8:00 PM** (local time).
@@ -29,6 +20,15 @@ BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who 
 The original pain point was simple: I was asking ChatGPT a lot of practical questions, but each time I had to manually take screenshots or copy/paste email context before I could ask.
 
 BuddyGPT removes that repetitive overhead. Instead of "screenshot -> copy context -> paste -> ask", you wake the dog and ask directly, so the whole flow feels smoother and more natural.
+
+## Quick Install (Windows)
+
+1. Download the latest installer: `BuddyGPT-Setup.exe` (from Releases).
+2. Double-click the installer and complete setup.
+3. Launch BuddyGPT from Start Menu.
+4. On first wake-up, paste your Anthropic API key when the dog asks.
+
+That is it - install, wake, ask.
 
 ## What BuddyGPT Is
 
