@@ -1,9 +1,14 @@
 {
-    "api_key": "sk-ant-xxx（或留空，使用 .env 中的 ANTHROPIC_API_KEY）",
+    "api_key": "sk-ant-xxx (or leave empty to use ANTHROPIC_API_KEY from .env)",
     "model": "claude-sonnet-4-20250514",
     "hotkey_activate": "ctrl+shift+space",
     "hotkey_quit": "ctrl+shift+q",
     "screenshot_interval": 3.0,
     "hash_threshold": 12,
-    "max_tokens": 1024
+    "max_tokens": 1024,
+    "daily_chat": {
+        "enabled": true,
+        "push_times": ["15:00", "20:00"],
+        "max_topic_retry": 3
+    }
 }

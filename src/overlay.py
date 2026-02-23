@@ -28,6 +28,7 @@ HINT_FG = "#8E8E93"
 SPRITE_SIZE = 128
 FRAME_MS = 160  # milliseconds per animation frame
 AUTO_REST_MS = 15000
+ALERT_DISMISS_MS = 30000
 
 WINDOW_W = 320
 
@@ -88,6 +89,8 @@ class OverlayWindow:
         self._photo: ImageTk.PhotoImage | None = None
         self._bubble_total_h = 0  # current bubble height (including tail)
         self._idle_after_id: str | None = None
+        self._alert_after_id: str | None = None
+        self._chat_mode = False
 
         self._pet.on_state_change(
             lambda old, new: self._root.after(0, self._on_pet_state_change)
@@ -101,6 +104,10 @@ class OverlayWindow:
     @property
     def hwnd(self) -> int:
         return self._hwnd
+
+    def can_show_proactive(self) -> bool:
+        """Whether it's safe to show proactive notifications without interruption."""
+        return self._pet.state == PetState.RESTING
 
     # ── Tk setup ──
 
@@ -366,11 +373,27 @@ class OverlayWindow:
 
         if state == PetState.RESTING:
             self._cancel_auto_rest()
+            self._cancel_alert_dismiss()
+            self._chat_mode = False
             self._bubble_canvas.pack_forget()
             self._input_canvas.pack_forget()
             new_h = H_RESTING
             self._root.geometry(f"{WINDOW_W}x{new_h}+{x}+{bottom - new_h}")
             self._update_status("zzZ")
+
+        elif state == PetState.ALERT:
+            # Notification bubble visible, no input bar
+            self._cancel_auto_rest()
+            self._input_canvas.pack_forget()
+            # bubble already drawn by show_alert before state change
+            self._schedule_alert_dismiss()
+
+        elif state == PetState.GREETING:
+            self._cancel_auto_rest()
+            self._input_canvas.pack(pady=(4, 8))
+            if self._bubble_total_h > 0:
+                self._set_window_height(bubble_h=self._bubble_total_h, with_input=True)
+            self._update_status("Daily chat")
 
         elif state == PetState.AWAKE:
             self._cancel_auto_rest()
@@ -395,6 +418,13 @@ class OverlayWindow:
             # Layout handled by _show_answer — just update status here
             self._update_status("Ask more, or Esc to close")
 
+        elif state == PetState.IDLE_CHAT:
+            self._cancel_auto_rest()
+            self._input_canvas.pack(pady=(4, 8))
+            if self._bubble_total_h > 0:
+                self._set_window_height(bubble_h=self._bubble_total_h, with_input=True)
+            self._update_status("Keep chatting")
+
     # ── Public API ──
 
     def show(self, image: Image.Image | None = None, window_title: str = ""):
@@ -403,11 +433,20 @@ class OverlayWindow:
         if self._root:
             self._root.after(0, self._do_show)
 
-    def show_notice(self, text: str, hint: str = "", status: str = ""):
+    def show_notice(
+        self,
+        text: str,
+        hint: str = "",
+        status: str = "",
+        pet_state: PetState | None = None,
+    ):
         if self._root:
-            self._root.after(150, lambda: self._do_show_notice(text, hint, status))
+            self._root.after(
+                150, lambda: self._do_show_notice(text, hint, status, pet_state)
+            )
 
     def _do_show(self):
+        self._chat_mode = False
         self._pet.trigger("activate")
 
         # Reset bubble
@@ -419,7 +458,26 @@ class OverlayWindow:
         self._root.deiconify()
         self._root.focus_force()
 
-    def _do_show_notice(self, text: str, hint: str, status: str):
+    def _do_show_notice(
+        self,
+        text: str,
+        hint: str,
+        status: str,
+        pet_state: PetState | None,
+    ):
+        self._image = None
+        self._root.deiconify()
+        self._root.focus_force()
+
+        if self._pet.state == PetState.RESTING:
+            if pet_state == PetState.GREETING:
+                self._pet.trigger("greet")
+            elif pet_state == PetState.ALERT:
+                self._pet.trigger("alert")
+            else:
+                self._pet.trigger("activate")
+
+        self._chat_mode = pet_state == PetState.GREETING
         bubble_h = self._update_bubble(text, hint=hint)
         self._input_canvas.pack(pady=(4, 8))
         self._entry.delete(0, tk.END)
@@ -430,10 +488,44 @@ class OverlayWindow:
             self._update_status(status)
         self._root.after(100, lambda: self._entry.focus_set())
 
+    # ── Proactive alert API ──
+
+    def show_alert(self, title: str, body: str, hint: str = "Click to respond · Esc dismiss"):
+        """Proactive notification — only interrupts when RESTING."""
+        if self._root:
+            self._root.after(0, lambda: self._do_show_alert(title, body, hint))
+
+    def _do_show_alert(self, title: str, body: str, hint: str):
+        if self._pet.state != PetState.RESTING:
+            return  # don't interrupt active conversation
+
+        # Draw bubble before entering ALERT state
+        bubble_h = self._update_bubble(body, hint=hint)
+        self._input_canvas.pack_forget()
+        self._set_window_height(bubble_h=bubble_h)
+        self._update_status(title)
+
+        self._root.deiconify()
+        self._pet.trigger("alert")
+
+    def _schedule_alert_dismiss(self):
+        self._cancel_alert_dismiss()
+        if self._root:
+            self._alert_after_id = self._root.after(
+                ALERT_DISMISS_MS, self._dismiss
+            )
+
+    def _cancel_alert_dismiss(self):
+        if self._root and self._alert_after_id:
+            self._root.after_cancel(self._alert_after_id)
+            self._alert_after_id = None
+
     # ── Dismiss / hide ──
 
     def _dismiss(self):
         self._cancel_auto_rest()
+        self._cancel_alert_dismiss()
+        self._chat_mode = False
         self._pet.trigger("dismiss")
 
     # ── Input handling ──
@@ -462,10 +554,14 @@ class OverlayWindow:
             self._root.after(0, self._show_answer, f"Error: {e}")
 
     def _show_answer(self, answer):
-        self._pet.trigger("answer")
+        reply_event = "chat_answer" if self._chat_mode else "answer"
+        self._pet.trigger(reply_event)
 
         # Draw auto-sized bubble with answer
-        bubble_h = self._update_bubble(answer, hint="Esc close \u00b7 Enter follow-up")
+        hint = "Esc close \u00b7 Enter follow-up"
+        if self._chat_mode:
+            hint = "Esc close \u00b7 Enter continue chatting"
+        bubble_h = self._update_bubble(answer, hint=hint)
 
         # Show input for follow-up
         self._input_canvas.pack(pady=(4, 8))
@@ -505,10 +601,20 @@ class OverlayWindow:
         self._root.geometry(f"+{x}+{y}")
 
     def _on_pet_click(self, _event):
-        # Click-to-wake only when resting; drag release should not activate.
+        # Drag release should not activate.
         if self._drag_moved:
             return
-        if self._pet.get_animation().state != PetState.RESTING:
+
+        state = self._pet.get_animation().state
+
+        # Click during ALERT → wake up to respond
+        if state == PetState.ALERT:
+            self._cancel_alert_dismiss()
+            self._pet.trigger("activate")
+            return
+
+        # Click-to-wake only when resting
+        if state != PetState.RESTING:
             return
 
         if self._on_activate:

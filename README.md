@@ -9,6 +9,19 @@
 
 That is it - install, wake, ask.
 
+## What's New
+
+- Added scheduled daily news pushes at **3:00 PM** and **8:00 PM** (local time).
+- Kept the first wake-up daily news flow, so you now have up to 3 daily news slots:
+  - first wake-up
+  - 3:00 PM update
+  - 8:00 PM update
+- Enforced same-day topic dedupe across all slots:
+  - if a generated topic repeats, BuddyGPT retries generation
+  - if no unique topic is found, that slot is skipped (no duplicate push)
+- Added "catch up when available today" behavior:
+  - if a scheduled time is missed while you are busy in chat, BuddyGPT pushes it when it can safely show.
+
 A tiny Shiba that lives in your screen corner and helps you unstuck.
 
 BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who leans over, takes a quick look at your screen, and gives you a short, practical answer.
@@ -72,10 +85,14 @@ Pet character attribution: from **누댕 Nudaeng** (`@nudaengdotbonk`).
 
 ## Features
 
-- Animated Shiba states: `resting` / `awake` / `thinking` / `reply`
+- Animated Shiba states: `resting` / `greeting` / `awake` / `thinking` / `idle_chat` / `reply`
 - Active-window screenshot understanding
 - App-aware context filtering
 - Optional web lookup (DuckDuckGo) when needed
+- Proactive daily news:
+  - first wake-up push
+  - scheduled pushes at 15:00 and 20:00 (local time)
+  - same-day topic dedupe (no repeated topic in one day)
 - Short, colleague-style answers
 - Language matching (ask in Chinese, get Chinese; ask in English, get English)
 
@@ -146,7 +163,12 @@ Use `config.json`:
   "hotkey_quit": "ctrl+shift+q",
   "screenshot_interval": 3.0,
   "hash_threshold": 12,
-  "max_tokens": 1024
+  "max_tokens": 1024,
+  "daily_chat": {
+    "enabled": true,
+    "push_times": ["15:00", "20:00"],
+    "max_topic_retry": 3
+  }
 }
 ```
 

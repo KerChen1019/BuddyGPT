@@ -7,25 +7,38 @@ from dataclasses import dataclass
 
 class PetState(Enum):
     RESTING = "resting"       # Default idle — relaxed, looping animation
+    GREETING = "greeting"     # Daily proactive opener
+    ALERT = "alert"           # Urgent proactive notification
     AWAKE = "awake"           # Activated — alert, ready for input
     THINKING = "thinking"     # AI processing — working animation
     REPLY = "reply"           # Showing response — talking animation
+    IDLE_CHAT = "idle_chat"   # Relaxed reply after proactive greeting
 
 
 # State transitions
 TRANSITIONS = {
-    PetState.RESTING:  {"activate": PetState.AWAKE},
+    PetState.RESTING:  {
+        "activate": PetState.AWAKE,
+        "greet": PetState.GREETING,
+        "alert": PetState.ALERT,
+    },
+    PetState.GREETING: {"submit": PetState.THINKING, "dismiss": PetState.RESTING},
+    PetState.ALERT:    {"submit": PetState.THINKING, "dismiss": PetState.RESTING},
     PetState.AWAKE:    {"submit": PetState.THINKING, "dismiss": PetState.RESTING},
-    PetState.THINKING: {"answer": PetState.REPLY},
+    PetState.THINKING: {"answer": PetState.REPLY, "chat_answer": PetState.IDLE_CHAT},
     PetState.REPLY:    {"submit": PetState.THINKING, "dismiss": PetState.RESTING},
+    PetState.IDLE_CHAT: {"submit": PetState.THINKING, "dismiss": PetState.RESTING},
 }
 
 # Opacity per state
 STATE_OPACITY = {
     PetState.RESTING:  0.85,
+    PetState.GREETING: 1.0,
+    PetState.ALERT:    1.0,
     PetState.AWAKE:    1.0,
     PetState.THINKING: 1.0,
     PetState.REPLY:    1.0,
+    PetState.IDLE_CHAT: 1.0,
 }
 
 
@@ -51,7 +64,7 @@ class Pet:
         self._on_state_change.append(callback)
 
     def trigger(self, event: str):
-        """Trigger a state transition. Events: activate, submit, answer, dismiss."""
+        """Trigger a state transition."""
         transitions = TRANSITIONS.get(self.state, {})
         next_state = transitions.get(event)
         if next_state:
@@ -67,8 +80,20 @@ class Pet:
             state=self.state,
             opacity=STATE_OPACITY.get(self.state, 1.0),
             frame_index=self._frame_index,
-            show_input=self.state in (PetState.AWAKE, PetState.REPLY),
-            show_bubble=self.state in (PetState.THINKING, PetState.REPLY),
+            show_input=self.state in (
+                PetState.AWAKE,
+                PetState.GREETING,
+                PetState.ALERT,
+                PetState.REPLY,
+                PetState.IDLE_CHAT,
+            ),
+            show_bubble=self.state in (
+                PetState.THINKING,
+                PetState.GREETING,
+                PetState.ALERT,
+                PetState.REPLY,
+                PetState.IDLE_CHAT,
+            ),
         )
 
     def _change_state(self, new_state: PetState):

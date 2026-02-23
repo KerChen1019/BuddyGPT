@@ -4,6 +4,7 @@ import base64
 import io
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -31,14 +32,20 @@ SEARCH_TOOL = {
     "description": (
         "Search the web for current information. Use this when you need to "
         "verify facts, look up documentation, find recent news, or when the "
-        "user's question requires information you're not sure about."
+        "user's question requires information you're not sure about. "
+        "Always use web search for questions about current events, recent news, "
+        "or anything that may have changed after your knowledge cutoff. "
+        "Include the current year in search queries when looking for recent information."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "The search query",
+                "description": (
+                    "The search query. Include the year or date when searching "
+                    "for recent or time-sensitive information."
+                ),
             },
         },
         "required": ["query"],
@@ -73,6 +80,11 @@ class AIAssistant:
 
     def _get_full_system_prompt(self) -> str:
         prompt = self.system_prompt
+
+        now = datetime.now()
+        time_str = now.strftime("%Y-%m-%d %H:%M %A")
+        prompt += f"\n\n## Current date and time\n{time_str}"
+
         app_addition = APP_PROMPTS.get(self._app_type, "")
         if app_addition:
             prompt += f"\n\n## Current context\n{app_addition}"

@@ -57,28 +57,28 @@ def filter_content(img: Image.Image, app_info: AppInfo) -> Image.Image:
 
 def build_context_prompt(app_info: AppInfo) -> str:
     """Build an app-aware context string to prepend to the AI system prompt."""
-    parts = [f"当前应用: {app_info.label}"]
+    parts = [f"Active app: {app_info.label}"]
     if app_info.url_hint:
-        parts.append(f"页面: {app_info.url_hint}")
+        parts.append(f"Page: {app_info.url_hint}")
     if app_info.window_title:
-        parts.append(f"窗口标题: {app_info.window_title}")
+        parts.append(f"Window title: {app_info.window_title}")
 
     tips = _APP_TIPS.get(app_info.app_type, "")
     if tips:
-        parts.append(f"提示: {tips}")
+        parts.append(f"Tip: {tips}")
     return "\n".join(parts)
 
 
 _APP_TIPS = {
-    AppType.GMAIL: "这是一封邮件，注意邮件的发件人、主题和正文内容。",
-    AppType.OUTLOOK: "这是 Outlook 邮件，注意邮件的发件人、主题和正文内容。",
-    AppType.BROWSER: "这是浏览器页面，关注页面的主要内容。",
-    AppType.VSCODE: "这是代码编辑器，关注代码内容、文件名和错误信息。",
-    AppType.TERMINAL: "这是终端/命令行，关注命令输出和错误信息。",
-    AppType.SLACK: "这是 Slack 消息，注意对话内容和发送者。",
-    AppType.DISCORD: "这是 Discord 消息，注意对话内容和频道。",
-    AppType.EXCEL: "这是 Excel 表格，关注数据内容和公式。",
-    AppType.WORD: "这是 Word 文档，关注文档内容。",
-    AppType.POWERPOINT: "这是 PowerPoint 演示，关注幻灯片内容。",
-    AppType.PDF_READER: "这是 PDF 文档，关注文档内容。",
+    AppType.GMAIL: "This is an email. Note the sender, subject, and body content.",
+    AppType.OUTLOOK: "This is an Outlook email. Note the sender, subject, and body content.",
+    AppType.BROWSER: "This is a browser page. Focus on the main content of the page.",
+    AppType.VSCODE: "This is a code editor. Focus on code content, filenames, and error messages.",
+    AppType.TERMINAL: "This is a terminal/command line. Focus on command output and error messages.",
+    AppType.SLACK: "This is a Slack message. Note the conversation content and sender.",
+    AppType.DISCORD: "This is a Discord message. Note the conversation content and channel.",
+    AppType.EXCEL: "This is an Excel spreadsheet. Focus on data content and formulas.",
+    AppType.WORD: "This is a Word document. Focus on document content.",
+    AppType.POWERPOINT: "This is a PowerPoint presentation. Focus on slide content.",
+    AppType.PDF_READER: "This is a PDF document. Focus on document content.",
 }

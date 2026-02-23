@@ -17,9 +17,18 @@ FRAME_COUNT = GRID_COLS * GRID_ROWS  # 16
 # Map state name → folder name
 STATE_FOLDERS = {
     "resting":  "resting",
+    "greeting": "greeting",
+    "alert":    "alert",
     "awake":    "awake",
     "thinking": "thinking",
     "reply":    "reply",
+    "idle_chat": "idle_chat",
+}
+
+STATE_FALLBACKS = {
+    "greeting": "awake",
+    "alert": "awake",
+    "idle_chat": "reply",
 }
 
 
@@ -80,6 +89,16 @@ class SpriteManager:
             self._sheets[state] = sheet_list
             self._active[state] = 0
             logger.info("Loaded %d sprite sheet(s) for '%s'", len(sheet_list), state)
+
+        for state, fallback in STATE_FALLBACKS.items():
+            if self._sheets.get(state):
+                continue
+            fallback_sheets = self._sheets.get(fallback)
+            if not fallback_sheets:
+                continue
+            self._sheets[state] = fallback_sheets
+            self._active[state] = 0
+            logger.info("State '%s' falling back to '%s' sprites", state, fallback)
 
     def pick_random(self, state: str):
         """Pick a random sprite sheet for a state (call on state entry)."""

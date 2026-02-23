@@ -4,6 +4,7 @@ import logging
 import sys
 import threading
 import time
+from datetime import datetime
 
 from src.ai_assistant import AIAssistant
 from src.app_detector import AppInfo, detect_app
@@ -11,8 +12,12 @@ from src.config import load_config, save_user_config
 from src.content_filter import build_context_prompt, filter_content
 from src.hotkey import HotkeyManager, parse_hotkey
 from src.monitor import MonitorConfig, ScreenMonitor
+from src.notifications import DailyChatSource, NotificationManager
 from src.overlay import OverlayWindow
 from src.screenshot import capture_window, get_active_hwnd
+
+WAKE_FIRST_SLOT = "wake_first"
+SCHEDULE_POLL_SECONDS = 20
 
 
 def _safe_set_utf8(stream):
@@ -33,7 +38,10 @@ cfg = load_config()
 ai = AIAssistant(api_key=cfg["api_key"], model=cfg["model"], max_tokens=cfg["max_tokens"])
 target_hwnd: int = 0
 current_app: AppInfo | None = None
-onboarding_needed = not bool(cfg.get("api_key", "").strip())
+news_lock = threading.Lock()
+
+onboarding_done = bool(cfg.get("onboarding_done", bool(cfg.get("api_key", "").strip())))
+onboarding_needed = bool(cfg.get("force_onboarding")) or not onboarding_done
 
 ONBOARDING_PROMPT = (
     "Hi! Before we start, please paste your Anthropic API key here.\n\n"
@@ -41,6 +49,24 @@ ONBOARDING_PROMPT = (
     "- config.json -> api_key\n"
     "- .env -> ANTHROPIC_API_KEY"
 )
+
+daily_chat_source: DailyChatSource | None = None
+
+
+def _build_notification_manager() -> NotificationManager:
+    global daily_chat_source
+    manager = NotificationManager()
+    daily_chat_source = DailyChatSource(ai_assistant=ai, config=cfg)
+    manager.register(daily_chat_source)
+    return manager
+
+
+notification_manager = _build_notification_manager()
+
+
+def _refresh_notification_manager() -> None:
+    global notification_manager
+    notification_manager = _build_notification_manager()
 
 
 def _looks_like_api_key(text: str) -> bool:
@@ -67,10 +93,13 @@ def on_submit(question, image):
             )
 
         if _looks_like_api_key(text):
-            save_user_config({"api_key": text, "onboarding_done": True})
+            save_user_config({"api_key": text, "onboarding_done": True, "force_onboarding": False})
             cfg["api_key"] = text
+            cfg["onboarding_done"] = True
+            cfg["force_onboarding"] = False
             onboarding_needed = False
             ai = AIAssistant(api_key=text, model=cfg["model"], max_tokens=cfg["max_tokens"])
+            _refresh_notification_manager()
             return "Nice. API key saved. Wake me again and ask anything."
 
         return (
@@ -79,13 +108,13 @@ def on_submit(question, image):
             "If you want to set it manually, type `skip`."
         )
 
-    # Re-capture and filter target window if no image
+    # Re-capture and filter target window if no image.
     if image is None and target_hwnd:
         raw = capture_window(target_hwnd)
         if raw and current_app:
             image = filter_content(raw, current_app)
 
-    # Prepend app context to the question
+    # Prepend app context to the question.
     if current_app:
         context = build_context_prompt(current_app)
         full_question = f"[{context}]\n\n{question}"
@@ -93,6 +122,66 @@ def on_submit(question, image):
         full_question = question
 
     return ai.ask(full_question, image=image)
+
+
+def _deliver_daily_news_slot(slot_id: str, overlay: OverlayWindow, now_local: datetime | None = None) -> bool:
+    """Generate and show one slot. Returns True when delivered."""
+    global target_hwnd, current_app
+    if daily_chat_source is None:
+        return False
+
+    now_local = now_local or datetime.now()
+    notification = daily_chat_source.generate_for_slot(slot_id, now_local, notification_manager.state)
+    if notification is None:
+        return False
+
+    ai.set_app_context("")
+    target_hwnd = 0
+    current_app = None
+    overlay.show_notice(
+        notification.text,
+        hint=notification.hint,
+        status=notification.status,
+        pet_state=notification.pet_state,
+    )
+    return True
+
+
+def _run_scheduled_news_loop(overlay: OverlayWindow) -> None:
+    while True:
+        time.sleep(SCHEDULE_POLL_SECONDS)
+        if onboarding_needed:
+            continue
+        if daily_chat_source is None or not daily_chat_source.is_enabled():
+            continue
+        if not overlay.can_show_proactive():
+            continue
+
+        try:
+            with news_lock:
+                if onboarding_needed:
+                    continue
+                if daily_chat_source is None or not daily_chat_source.is_enabled():
+                    continue
+                if not overlay.can_show_proactive():
+                    continue
+
+                now_local = datetime.now()
+                pending_slots = daily_chat_source.pending_timed_slots(
+                    notification_manager.state,
+                    now_local,
+                )
+                if not pending_slots:
+                    continue
+
+                slot_id = pending_slots[0]
+                delivered = _deliver_daily_news_slot(slot_id, overlay, now_local)
+                if delivered:
+                    logger.info("Scheduled daily news delivered: %s", slot_id)
+                else:
+                    logger.info("Scheduled daily news skipped (no unique topic): %s", slot_id)
+        except Exception:
+            logger.exception("Scheduled daily news loop failed")
 
 
 def on_activate(overlay):
@@ -103,22 +192,47 @@ def on_activate(overlay):
         overlay.show(image=None, window_title="BuddyGPT Onboarding")
         overlay.show_notice(
             ONBOARDING_PROMPT,
-            hint="Paste key + Enter · type 'skip' for manual setup",
+            hint="Paste key + Enter - type 'skip' for manual setup",
             status="Setup: API key needed",
         )
         return
 
-    target_hwnd = get_active_hwnd(skip_hwnd=overlay.hwnd)
-    current_app = detect_app(target_hwnd)
-    img = capture_window(target_hwnd)
+    with news_lock:
+        # Phase 1: first wake-up proactive news.
+        try:
+            if daily_chat_source and daily_chat_source.should_trigger_slot(
+                notification_manager.state,
+                WAKE_FIRST_SLOT,
+                datetime.now(),
+            ):
+                if _deliver_daily_news_slot(WAKE_FIRST_SLOT, overlay, datetime.now()):
+                    return
+        except Exception:
+            logger.exception("Daily chat wake check failed, falling back to normal activation")
 
-    if img and current_app:
-        img = filter_content(img, current_app)
+        target_hwnd = get_active_hwnd(skip_hwnd=overlay.hwnd)
+        current_app = detect_app(target_hwnd)
+        img = capture_window(target_hwnd)
 
-    ai.clear_history()
-    ai.set_app_context(current_app.app_type.value)
-    logger.info("Activated: %s (%s) hwnd=%d", current_app.label, current_app.process_name, target_hwnd)
-    overlay.show(image=img, window_title=f"{current_app.label} - {current_app.window_title}")
+        if img and current_app:
+            img = filter_content(img, current_app)
+
+        ai.clear_history()
+        if current_app:
+            ai.set_app_context(current_app.app_type.value)
+            logger.info(
+                "Activated: %s (%s) hwnd=%d",
+                current_app.label,
+                current_app.process_name,
+                target_hwnd,
+            )
+            window_title = f"{current_app.label} - {current_app.window_title}"
+        else:
+            ai.set_app_context("")
+            logger.info("Activated: unknown app hwnd=%d", target_hwnd)
+            window_title = "BuddyGPT"
+
+        overlay.show(image=img, window_title=window_title)
 
 
 def main():
@@ -138,6 +252,15 @@ def main():
         on_activate=lambda: on_activate(overlay),
     )
     print("UI ready.")
+
+    scheduler_thread = threading.Thread(
+        target=_run_scheduled_news_loop,
+        args=(overlay,),
+        daemon=True,
+        name="daily-news-scheduler",
+    )
+    scheduler_thread.start()
+    print("Daily news scheduler started.")
 
     monitor_config = MonitorConfig(
         interval=cfg["screenshot_interval"],
