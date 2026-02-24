@@ -6,6 +6,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from PIL import Image, ImageTk
 
+from .interaction_mode import AssistantTurnResult, ResponseMode
 from .pet import Pet, PetState
 from .sprites import SpriteManager
 
@@ -29,6 +30,7 @@ SPRITE_SIZE = 128
 FRAME_MS = 160  # milliseconds per animation frame
 AUTO_REST_MS = 15000
 ALERT_DISMISS_MS = 30000
+DRAG_THRESHOLD_PX = 6
 
 WINDOW_W = 320
 
@@ -74,6 +76,18 @@ def _create_rounded_rect(canvas, x1, y1, x2, y2, r, **kwargs):
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
 
+def _resolve_response_mode(answer, chat_mode: bool) -> tuple[str, str, ResponseMode]:
+    """Resolve reply event/text/mode from legacy str or AssistantTurnResult."""
+    response_mode = ResponseMode.CASUAL if chat_mode else ResponseMode.WORK
+    answer_text = answer if isinstance(answer, str) else str(answer)
+    if isinstance(answer, AssistantTurnResult):
+        answer_text = answer.text
+        response_mode = answer.response_mode
+
+    reply_event = "chat_answer" if response_mode == ResponseMode.CASUAL else "answer"
+    return reply_event, answer_text, response_mode
+
+
 class OverlayWindow:
     def __init__(self, on_submit, on_activate=None):
         self._on_submit = on_submit
@@ -85,6 +99,7 @@ class OverlayWindow:
         self._sprites = SpriteManager(frame_size=SPRITE_SIZE, chroma=CHROMA_RGB)
         self._ready = threading.Event()
         self._drag_data = {"x": 0, "y": 0}
+        self._drag_start_root = {"x": 0, "y": 0}
         self._drag_moved = False
         self._photo: ImageTk.PhotoImage | None = None
         self._bubble_total_h = 0  # current bubble height (including tail)
@@ -554,14 +569,17 @@ class OverlayWindow:
             self._root.after(0, self._show_answer, f"Error: {e}")
 
     def _show_answer(self, answer):
-        reply_event = "chat_answer" if self._chat_mode else "answer"
+        reply_event, answer_text, response_mode = _resolve_response_mode(
+            answer, self._chat_mode
+        )
         self._pet.trigger(reply_event)
+        self._chat_mode = response_mode == ResponseMode.CASUAL
 
         # Draw auto-sized bubble with answer
         hint = "Esc close \u00b7 Enter follow-up"
-        if self._chat_mode:
+        if response_mode == ResponseMode.CASUAL:
             hint = "Esc close \u00b7 Enter continue chatting"
-        bubble_h = self._update_bubble(answer, hint=hint)
+        bubble_h = self._update_bubble(answer_text, hint=hint)
 
         # Show input for follow-up
         self._input_canvas.pack(pady=(4, 8))
@@ -591,10 +609,16 @@ class OverlayWindow:
 
     def _drag_start(self, event):
         self._drag_moved = False
+        self._drag_start_root["x"] = event.x_root
+        self._drag_start_root["y"] = event.y_root
         self._drag_data["x"] = event.x_root - self._root.winfo_x()
         self._drag_data["y"] = event.y_root - self._root.winfo_y()
 
     def _drag_move(self, event):
+        dx = abs(event.x_root - self._drag_start_root["x"])
+        dy = abs(event.y_root - self._drag_start_root["y"])
+        if not self._drag_moved and dx < DRAG_THRESHOLD_PX and dy < DRAG_THRESHOLD_PX:
+            return
         self._drag_moved = True
         x = event.x_root - self._drag_data["x"]
         y = event.y_root - self._drag_data["y"]

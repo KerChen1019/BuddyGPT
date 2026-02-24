@@ -11,13 +11,31 @@ from src.app_detector import AppInfo, detect_app
 from src.config import load_config, save_user_config
 from src.content_filter import build_context_prompt, filter_content
 from src.hotkey import HotkeyManager, parse_hotkey
+from src.intent_router import classify_response_mode
+from src.interaction_mode import AssistantTurnResult, ResponseMode
 from src.monitor import MonitorConfig, ScreenMonitor
 from src.notifications import DailyChatSource, NotificationManager
 from src.overlay import OverlayWindow
+from src.pet import PetState
 from src.screenshot import capture_window, get_active_hwnd
+from src.url_browse import (
+    DEFAULT_GLOBAL_TIMEOUT,
+    DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_CHARS_PER_URL,
+    DEFAULT_MAX_TOTAL_CHARS,
+    DEFAULT_PER_URL_TIMEOUT,
+    build_browse_context,
+    extract_urls,
+    fetch_public_page,
+)
 
 WAKE_FIRST_SLOT = "wake_first"
 SCHEDULE_POLL_SECONDS = 20
+URL_PER_TIMEOUT = DEFAULT_PER_URL_TIMEOUT
+URL_GLOBAL_TIMEOUT = DEFAULT_GLOBAL_TIMEOUT
+URL_MAX_BYTES = DEFAULT_MAX_BYTES
+URL_MAX_CHARS_PER_URL = DEFAULT_MAX_CHARS_PER_URL
+URL_MAX_TOTAL_CHARS = DEFAULT_MAX_TOTAL_CHARS
 
 
 def _safe_set_utf8(stream):
@@ -39,6 +57,8 @@ ai = AIAssistant(api_key=cfg["api_key"], model=cfg["model"], max_tokens=cfg["max
 target_hwnd: int = 0
 current_app: AppInfo | None = None
 news_lock = threading.Lock()
+activation_lock = threading.Lock()
+activation_in_progress = False
 
 onboarding_done = bool(cfg.get("onboarding_done", bool(cfg.get("api_key", "").strip())))
 onboarding_needed = bool(cfg.get("force_onboarding")) or not onboarding_done
@@ -79,6 +99,21 @@ def on_screen_change(frame, distance):
     logger.info('[%s] Screen changed (distance=%d) window="%s"', ts, distance, frame.title)
 
 
+def _begin_activation() -> bool:
+    global activation_in_progress
+    with activation_lock:
+        if activation_in_progress:
+            return False
+        activation_in_progress = True
+        return True
+
+
+def _end_activation() -> None:
+    global activation_in_progress
+    with activation_lock:
+        activation_in_progress = False
+
+
 def on_submit(question, image):
     """Called by overlay UI when user submits a question."""
     global ai, onboarding_needed
@@ -114,14 +149,70 @@ def on_submit(question, image):
         if raw and current_app:
             image = filter_content(raw, current_app)
 
-    # Prepend app context to the question.
+    app_type = current_app.app_type.value if current_app else ""
+    response_mode = classify_response_mode(question=question, app_type=app_type, ai=ai)
+    mode_hint = "focus on actionable, task-oriented response"
+    if response_mode == ResponseMode.CASUAL:
+        mode_hint = "light conversational response"
+
+    urls = extract_urls(question)
+    browse_context = ""
+    if urls:
+        pages = []
+        failures: list[str] = []
+        deadline = time.monotonic() + URL_GLOBAL_TIMEOUT
+        for url in urls:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failures.append(f"{url} (global_timeout)")
+                continue
+
+            timeout_sec = min(URL_PER_TIMEOUT, remaining)
+            logger.info("URL browse start: url=%s timeout=%.2fs", url, timeout_sec)
+            page = fetch_public_page(
+                url=url,
+                timeout_sec=timeout_sec,
+                max_bytes=URL_MAX_BYTES,
+            )
+            if not page.ok:
+                failures.append(f"{url} ({page.error})")
+                logger.info("URL browse failed: url=%s reason=%s", url, page.error)
+                continue
+
+            pages.append(page)
+            logger.info(
+                "URL browse success: url=%s type=%s duration_ms=%d",
+                url,
+                page.content_type,
+                page.duration_ms,
+            )
+
+        if failures:
+            msg = (
+                "I could not browse one or more links right now. "
+                "Please retry or send accessible public pages only.\n"
+                f"Failed links: {'; '.join(failures)}"
+            )
+            return AssistantTurnResult(text=msg, response_mode=response_mode)
+
+        browse_context = build_browse_context(
+            pages=pages,
+            max_chars_per_url=URL_MAX_CHARS_PER_URL,
+            max_total_chars=URL_MAX_TOTAL_CHARS,
+        )
+
+    blocks: list[str] = []
     if current_app:
         context = build_context_prompt(current_app)
-        full_question = f"[{context}]\n\n{question}"
-    else:
-        full_question = question
+        blocks.append(f"[{context}]")
+    blocks.append(f"[Mode hint] {mode_hint}")
+    if browse_context:
+        blocks.append(f"[Direct URL browse context]\n{browse_context}")
+    blocks.append(question)
 
-    return ai.ask(full_question, image=image)
+    full_question = "\n\n".join(blocks)
+    answer = ai.ask(full_question, image=image)
+    return AssistantTurnResult(text=answer, response_mode=response_mode)
 
 
 def _deliver_daily_news_slot(slot_id: str, overlay: OverlayWindow, now_local: datetime | None = None) -> bool:
@@ -188,51 +279,59 @@ def on_activate(overlay):
     """Called when wake-up action is triggered."""
     global target_hwnd, current_app
 
-    if onboarding_needed:
-        overlay.show(image=None, window_title="BuddyGPT Onboarding")
-        overlay.show_notice(
-            ONBOARDING_PROMPT,
-            hint="Paste key + Enter - type 'skip' for manual setup",
-            status="Setup: API key needed",
-        )
+    if not _begin_activation():
+        logger.info("Activation ignored: another activation is in progress")
         return
 
-    with news_lock:
-        # Phase 1: first wake-up proactive news.
-        try:
-            if daily_chat_source and daily_chat_source.should_trigger_slot(
-                notification_manager.state,
-                WAKE_FIRST_SLOT,
-                datetime.now(),
-            ):
-                if _deliver_daily_news_slot(WAKE_FIRST_SLOT, overlay, datetime.now()):
-                    return
-        except Exception:
-            logger.exception("Daily chat wake check failed, falling back to normal activation")
-
-        target_hwnd = get_active_hwnd(skip_hwnd=overlay.hwnd)
-        current_app = detect_app(target_hwnd)
-        img = capture_window(target_hwnd)
-
-        if img and current_app:
-            img = filter_content(img, current_app)
-
-        ai.clear_history()
-        if current_app:
-            ai.set_app_context(current_app.app_type.value)
-            logger.info(
-                "Activated: %s (%s) hwnd=%d",
-                current_app.label,
-                current_app.process_name,
-                target_hwnd,
+    try:
+        if onboarding_needed:
+            overlay.show(image=None, window_title="BuddyGPT Onboarding")
+            overlay.show_notice(
+                ONBOARDING_PROMPT,
+                hint="Paste key + Enter - type 'skip' for manual setup",
+                status="Setup: API key needed",
+                pet_state=PetState.GREETING,
             )
-            window_title = f"{current_app.label} - {current_app.window_title}"
-        else:
-            ai.set_app_context("")
-            logger.info("Activated: unknown app hwnd=%d", target_hwnd)
-            window_title = "BuddyGPT"
+            return
 
-        overlay.show(image=img, window_title=window_title)
+        with news_lock:
+            # Phase 1: first wake-up proactive news.
+            try:
+                if daily_chat_source and daily_chat_source.should_trigger_slot(
+                    notification_manager.state,
+                    WAKE_FIRST_SLOT,
+                    datetime.now(),
+                ):
+                    if _deliver_daily_news_slot(WAKE_FIRST_SLOT, overlay, datetime.now()):
+                        return
+            except Exception:
+                logger.exception("Daily chat wake check failed, falling back to normal activation")
+
+            target_hwnd = get_active_hwnd(skip_hwnd=overlay.hwnd)
+            current_app = detect_app(target_hwnd)
+            img = capture_window(target_hwnd)
+
+            if img and current_app:
+                img = filter_content(img, current_app)
+
+            ai.clear_history()
+            if current_app:
+                ai.set_app_context(current_app.app_type.value)
+                logger.info(
+                    "Activated: %s (%s) hwnd=%d",
+                    current_app.label,
+                    current_app.process_name,
+                    target_hwnd,
+                )
+                window_title = f"{current_app.label} - {current_app.window_title}"
+            else:
+                ai.set_app_context("")
+                logger.info("Activated: unknown app hwnd=%d", target_hwnd)
+                window_title = "BuddyGPT"
+
+            overlay.show(image=img, window_title=window_title)
+    finally:
+        _end_activation()
 
 
 def main():
