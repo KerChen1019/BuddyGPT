@@ -15,6 +15,8 @@
 
 A tiny Shiba that lives in your screen corner and helps you unstuck.
 
+![Real Shiba reference](assets/shiba/states/image0.jpg)
+
 BuddyGPT is not a "do-it-for-me" agent. It is more like a friendly coworker who leans over, takes a quick look at your screen, and gives you a short, practical answer.
 
 The original pain point was simple: I was asking ChatGPT a lot of practical questions, but each time I had to manually take screenshots or copy/paste email context before I could ask.
@@ -327,27 +329,7 @@ Tokens are used only when you submit a question (and optional tool-use rounds).
 BuddyGPT captures the last active window at wake-up.  
 If focus changes right before activation, context may be off. Wake it again while the correct app is focused.
 
-### 4) Why are README images not showing on GitHub?
-
-Usually because image files were not tracked by git due to ignore rules (for example `*.png`).  
-This repo already whitelists the Shiba state image folders in `.gitignore`.
-
-### 5) Do I need both `config.json` and `.env` API keys?
+### 4) Do I need both `config.json` and `.env` API keys?
 
 No. Use one source of truth.  
 If `config.json` has a non-empty `api_key`, it takes priority over `.env`.
-
-### 6) Build script says `No matching distribution found for pyinstaller`
-
-This is usually a package index/network issue, not a BuddyGPT issue.  
-Try running the build with a reachable index:
-
-```powershell
-.\scripts\build_windows.ps1 -PythonCmd "py -3.12" -PipIndexUrl "https://pypi.org/simple"
-```
-
-### 7) What happens on first launch after install?
-
-If BuddyGPT cannot find an API key, it starts an onboarding prompt on wake-up.  
-Paste your Anthropic key in the dog input box and press `Enter`, and BuddyGPT will save it to `config.json` automatically.
-
