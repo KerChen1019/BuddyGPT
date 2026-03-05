@@ -20,7 +20,6 @@ WORK_PRIOR_APPS = {
     "powerpoint",
 }
 
-# Keep keyword lists short and high-signal.
 WORK_KEYWORDS = {
     "email",
     "deadline",
@@ -64,7 +63,6 @@ CASUAL_KEYWORDS = {
     "哈哈",
 }
 
-# If one side is ahead by this much, use rules directly.
 RULE_GAP_THRESHOLD = 2
 
 
@@ -86,10 +84,14 @@ def _normalize_output_to_mode(raw: str) -> ResponseMode:
 
 
 def _classify_with_model(question: str, app_type: str, ai) -> ResponseMode:
-    """Lightweight fallback classifier using model output `work` or `casual`."""
+    """Fallback classifier using model output `work` or `casual`."""
     client = getattr(ai, "client", None)
     model = getattr(ai, "model", None)
     if client is None or not model:
+        return ResponseMode.WORK
+    messages_api = getattr(client, "messages", None)
+    create_fn = getattr(messages_api, "create", None)
+    if create_fn is None:
         return ResponseMode.WORK
 
     prompt = (
@@ -103,7 +105,7 @@ def _classify_with_model(question: str, app_type: str, ai) -> ResponseMode:
     )
 
     try:
-        response = client.messages.create(
+        response = create_fn(
             model=model,
             max_tokens=8,
             system=(
@@ -112,7 +114,7 @@ def _classify_with_model(question: str, app_type: str, ai) -> ResponseMode:
             ),
             messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
         )
-        text_parts = [getattr(block, "text", "") for block in response.content]
+        text_parts = [getattr(block, "text", "") for block in getattr(response, "content", [])]
         return _normalize_output_to_mode(" ".join(text_parts))
     except Exception:
         logger.exception("Intent fallback classification failed")
@@ -133,7 +135,6 @@ def classify_response_mode(question: str, app_type: str, ai) -> ResponseMode:
     work_score += _keyword_hits(lowered, WORK_KEYWORDS)
     casual_score += _keyword_hits(lowered, CASUAL_KEYWORDS)
 
-    # Strong punctuation/social signals nudge casual.
     if re.search(r"(?:^|\s)(lol|haha|hehe)(?:\s|$)", lowered):
         casual_score += 1
 

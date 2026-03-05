@@ -7,7 +7,7 @@ from src.interaction_mode import ResponseMode
 
 
 class DummyAI:
-    """Minimal stand-in; no model fallback client by default."""
+    """Minimal stand-in for classifier signature."""
 
     client = None
     model = "dummy"
@@ -45,4 +45,22 @@ def test_ambiguous_text_uses_model_fallback(monkeypatch):
         ai=DummyAI(),
     )
     assert called["v"] is True
+    assert mode == ResponseMode.CASUAL
+
+
+def test_restored_work_keyword_chinese_routes_work():
+    mode = classify_response_mode(
+        question="\u8fd9\u4e2a\u9879\u76ee\u4eca\u5929\u9700\u8981\u4fee\u590d\u62a5\u9519",
+        app_type="browser",
+        ai=DummyAI(),
+    )
+    assert mode == ResponseMode.WORK
+
+
+def test_restored_casual_keyword_chinese_routes_casual():
+    mode = classify_response_mode(
+        question="\u4f60\u597d \u8c22\u8c22 \u54c8\u54c8",
+        app_type="browser",
+        ai=DummyAI(),
+    )
     assert mode == ResponseMode.CASUAL
